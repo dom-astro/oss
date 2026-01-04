@@ -61,7 +61,7 @@ Le tout est **conteneurisé avec Docker** afin d'assurer portabilité, reproduct
 ### 2. Cloner le dépôt
 
 ```bash
-git clone https://github.com/OUNZAR-Aymane/PRONTO18-ai_agent.git
+git clone https://github.com/dom-astro/oss.git
 cd ai-agent
 ```
 
