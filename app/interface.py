@@ -459,8 +459,30 @@ elif st.session_state.get('authentication_status'):
     # Display chat history
     st.header("Conversation")
 
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            if message.get("role") == "assistant" and message.get("sources"):
+                with st.expander("📚 Documents utilisés"):
+                    # Dictionary to avoid duplicates
+                    unique_sources = {}
+                    for item in message["sources"]:
+                        source = item.get("source") or "Unknown"
+                        content = item.get("content") or ""
+                        if source not in unique_sources:
+                            unique_sources[source] = content
+
+                    for i, (source, content) in enumerate(unique_sources.items(), 1):
+                        # Extract just the filename from the path
+                        if source != 'Unknown':
+                            filename = source.split('\\')[-1].split('/')[-1]
+                        else:
+                            filename = source
+                        st.write(f"**{i}. {filename}**")
+                        st.write(f"```\n{content}\n```")
+
     # Boutons de questions suggérées
-    st.markdown("**Questions suggérées :**")
+    st.markdown("**💡 Questions suggérées :**")
     col1, col2, col3, col4 = st.columns(4)
     
     suggested_questions = [
@@ -483,30 +505,6 @@ elif st.session_state.get('authentication_status'):
     with col4:
         if st.button(suggested_questions[3], key="q4", use_container_width=True):
             question_clicked = suggested_questions[3]
-
-    st.markdown("---")
-
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            if message.get("role") == "assistant" and message.get("sources"):
-                with st.expander("📚 Documents utilisés"):
-                    # Dictionary to avoid duplicates
-                    unique_sources = {}
-                    for item in message["sources"]:
-                        source = item.get("source") or "Unknown"
-                        content = item.get("content") or ""
-                        if source not in unique_sources:
-                            unique_sources[source] = content
-
-                    for i, (source, content) in enumerate(unique_sources.items(), 1):
-                        # Extract just the filename from the path
-                        if source != 'Unknown':
-                            filename = source.split('\\')[-1].split('/')[-1]
-                        else:
-                            filename = source
-                        st.write(f"**{i}. {filename}**")
-                        st.write(f"```\n{content}\n```")
 
     # Chatbot - Text input interface
     user_input = st.chat_input("Posez votre question ici...")
