@@ -287,8 +287,17 @@ elif st.session_state.get('authentication_status'):
     Pose-moi une question ou demande-moi de l'aide !
     """)
 
+    # Ajouter le logo "Gens de la Lune"
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        logo_path = Path(__file__).resolve().parent.parent / "assets" / "images" / "logo-gens-de-la-lune.png"
+        if logo_path.exists():
+            st.image(str(logo_path), use_container_width=True)
+        else:
+            st.info("Logo 'Gens de la Lune' non trouvé. Veuillez placer l'image dans assets/images/")
+
     # Add a title
-    st.title("Bienvenue dans l'Observatoire Astronomique 🚀")
+    st.title("Bienvenue dans l'Observatoire Astronomique De la pointe du Diable 🚀")
 
     with st.sidebar:
         # Mode raisonnement toggle
