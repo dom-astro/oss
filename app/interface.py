@@ -459,49 +459,8 @@ elif st.session_state.get('authentication_status'):
     # Display chat history
     st.header("Conversation")
 
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            if message.get("role") == "assistant" and message.get("sources"):
-                with st.expander("📚 Documents utilisés"):
-                    # Dictionary to avoid duplicates
-                    unique_sources = {}
-                    for item in message["sources"]:
-                        source = item.get("source") or "Unknown"
-                        content = item.get("content") or ""
-                        if source not in unique_sources:
-                            unique_sources[source] = content
-
-                    for i, (source, content) in enumerate(unique_sources.items(), 1):
-                        # Extract just the filename from the path
-                        if source != 'Unknown':
-                            filename = source.split('\\')[-1].split('/')[-1]
-                        else:
-                            filename = source
-                        st.write(f"**{i}. {filename}**")
-                        st.write(f"```\n{content}\n```")
-
-    # Champ de saisie stylé + bouton Envoyer (style proche de st.chat_input)
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stHorizontalBlock"] { gap: 0rem; margin-bottom: -10px; align-items: flex-start; }
-        div[data-testid="column"] { padding-left: 0 !important; padding-right: 0 !important; }
-        input[type="text"] { border-radius: 999px; height: 44px; margin-top: 0 !important; }
-        div[data-testid="stButton"] > button { border-radius: 999px; height: 44px; min-width: 44px; padding: 0 14px; margin: 0 !important; margin-top: 12px !important; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    input_col, send_col = st.columns([0.95, 0.05], gap="small")
-    with input_col:
-        user_input = st.text_input("", placeholder="Posez votre question ici...", key="user_input_text")
-    with send_col:
-        submitted = st.button("➤", key="send_btn", use_container_width=True)
-
-    # Boutons de questions suggérées - directement en dessous
-    st.markdown("<div style='margin-top: 12px;'></div>", unsafe_allow_html=True)
+    # Boutons de questions suggérées
+    st.markdown("**Questions suggérées :**")
     col1, col2, col3, col4 = st.columns(4)
     
     suggested_questions = [
@@ -525,12 +484,38 @@ elif st.session_state.get('authentication_status'):
         if st.button(suggested_questions[3], key="q4", use_container_width=True):
             question_clicked = suggested_questions[3]
 
+    st.markdown("---")
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            if message.get("role") == "assistant" and message.get("sources"):
+                with st.expander("📚 Documents utilisés"):
+                    # Dictionary to avoid duplicates
+                    unique_sources = {}
+                    for item in message["sources"]:
+                        source = item.get("source") or "Unknown"
+                        content = item.get("content") or ""
+                        if source not in unique_sources:
+                            unique_sources[source] = content
+
+                    for i, (source, content) in enumerate(unique_sources.items(), 1):
+                        # Extract just the filename from the path
+                        if source != 'Unknown':
+                            filename = source.split('\\')[-1].split('/')[-1]
+                        else:
+                            filename = source
+                        st.write(f"**{i}. {filename}**")
+                        st.write(f"```\n{content}\n```")
+
+    # Chatbot - Text input interface
+    user_input = st.chat_input("Posez votre question ici...")
+
     # Si un bouton de question suggérée est cliqué, utiliser cette question
     if question_clicked:
         user_input = question_clicked
-        submitted = True
 
-    if submitted and user_input:
+    if user_input:
         # 1) Display/store user message
         with st.chat_message("user"):
             st.write(user_input)
@@ -604,5 +589,4 @@ elif st.session_state.get('authentication_status'):
 
         # Save chat history after each exchange
         save_chat_history()
-        st.session_state.user_input_text = ""
 
