@@ -492,13 +492,14 @@ elif st.session_state.get('authentication_status'):
 
     # Boutons de questions suggérées
     st.markdown("**💡 Questions suggérées :**")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     suggested_questions = [
         "Quel est le programme ce soir?",
         "Quelle est la météo actuelle?",
         "Comment utiliser le télescope?",
-        "Quels objets peut-on observer?"
+        "Quels objets peut-on observer?",
+        "Quels sont les objets de Messier visible ce soir?"
     ]
     
     question_clicked = None
@@ -514,6 +515,9 @@ elif st.session_state.get('authentication_status'):
     with col4:
         if st.button(suggested_questions[3], key="q4", use_container_width=True):
             question_clicked = suggested_questions[3]
+    with col5:
+        if st.button(suggested_questions[4], key="q5", use_container_width=True):
+            question_clicked = suggested_questions[4]
 
     # Chatbot - Text input interface
     user_input = st.chat_input("Posez votre question ici...")

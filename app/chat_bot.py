@@ -43,6 +43,19 @@ def should_fetch_skywatch(user_input: str) -> bool:
     
     return should_fetch
 
+def should_use_messier_catalog(user_input: str) -> bool:
+    """Check if the question is about Messier objects"""
+    keywords = ['messier', 'catalogue messier', 'objets messier', 'objets de messier', 'objet messier', 'objet de messier', ' m31', ' m42', ' m45', ' m13', ' m1 ', 'objets m ']
+    user_lower = user_input.lower()
+    
+    # Check if any keyword is in the input
+    should_use = any(keyword in user_lower for keyword in keywords)
+    
+    if should_use:
+        print(f"INFO - Messier catalog usage triggered for: {user_input}")
+    
+    return should_use
+
 def fetch_skywatch_data() -> str:
     """Fetch weather and program data from skywatch website with 5-minute cache"""
     global SKYWATCH_CACHE
@@ -261,10 +274,50 @@ def create_prompt(reasoning_mode=False):
         *Ciel profond :*
         - [Objets du ciel profond] : M31, M42, etc.
         - Magnitude et conseils d'observation
+
+        *Objets de Messier (5 max) :*
+        - Liste de 1 à 5 objets Messier visibles ce soir
+        - Pour chaque objet : type + constellation + magnitude + court conseil
         
         **⚠️ Précautions :**
         - Basées sur l'humidité, température, vent
         - Impact de la lune si présente
+
+          POUR LES QUESTIONS SUR LES OBJETS DE MESSIER VISIBLES CE SOIR:
+                    - Si l'utilisateur demande "Quels sont les objets de Messier visible ce soir?" (ou formulation équivalente), tu dois répondre STRICTEMENT avec le format ci-dessous.
+                    - **IMPORTANT: Tu DOIS utiliser les informations du document "Catalogue Messier.pdf" disponible dans le contexte pour identifier les objets, leurs caractéristiques (type, constellation, magnitude, taille).**
+                    - Utilise les données SkyWatch pour déterminer les heures de visibilité et les conditions d'observation.
+                    - Exemples de formulations équivalentes :
+                        - "Quels objets de Messier sont visibles ce soir ?"
+                        - "Quels objets Messier peut-on voir ce soir ?"
+                        - "Quels sont les Messier visibles ce soir ?"
+                        - "Peux-tu lister les objets du catalogue Messier visibles ce soir ?"
+                        - "Quels M sont observables ce soir ?"
+                        - "Quels objets M sont visibles ce soir ?"
+                        - "Quels objets Messier sont observables ce soir ?"
+                        - "Quels objets du catalogue Messier peut-on observer ce soir ?"
+                        - "Liste des objets de Messier visibles ce soir"
+          - Ne dépasse pas 5 objets.
+          - Si les informations ne sont pas disponibles dans le Catalogue Messier.pdf, indique-le clairement dans le format.
+
+          ### 🌌 Objets Messier visibles ce soir – Observatoire de la Pointe du Diable
+          **Date** : [JJ/MM/AAAA] | **Coucher du soleil** : [HHhMM] | **Conditions idéales** : [ex: Ciel dégagé, seeing < 2 arcsec.]
+
+          1. **[MXX] – [Surnom]**
+              - **Type** : [Type] | **Constellation** : [Nom] | **Magnitude** : [X.X] | **Taille** : [X’]
+              - **Visibilité** : [Heure de début]–[Heure de fin] (culmination à [Heure]).
+              - **Conseil** : [Matériel/filtre recommandé].
+              - **Description** : [Brève description visuelle ou historique].
+
+          2. **[MXX] – [Surnom]**
+              - ...
+          *(Répéter pour 5 objets max.)*
+
+          ---
+          **Notes supplémentaires :**
+          - **Pollution lumineuse** : Brest a un ciel de classe Bortle 5–6. Privilégiez les filtres à bande étroite pour les nébuleuses.
+          - **Prochains objets intéressants** : [Ex. : *"M81/M82 seront visibles après minuit."*].
+          - **Source des données** : Informations du document "Catalogue Messier.pdf" + conditions d'observation de SkyWatch.
         
         Si l'utilisateur pose des questions sur quelque chose autre que l'observatoire, tu refuses de répondre.
         Répond toujours en français."""
@@ -345,11 +398,19 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
             skywatch_doc = create_skywatch_document(skywatch_content)
             print(f"INFO - SkyWatch document created")
     
+    # Check if we need to explicitly search for Messier catalog
+    needs_messier = should_use_messier_catalog(user_input)
+    
     # Add reasoning mode indicator to input if active
     enhanced_input = user_input
     if reasoning_mode:
         enhanced_input = f"[MODE RAISONNEMENT ACTIVÉ]\n\n{user_input}"
         print("INFO - Reasoning mode activated")
+    
+    # If Messier objects are mentioned, enhance the query to include catalog search
+    if needs_messier:
+        enhanced_input = f"{enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
+        print("INFO - Enhanced input to search Messier catalog")
     
     # Invoke the chain with original input
     response = chain.invoke({"input": enhanced_input, "chat_history": chat_history})
@@ -370,6 +431,9 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
         
         if reasoning_mode:
             skywatch_enhanced_input = f"[MODE RAISONNEMENT ACTIVÉ]\n\n{skywatch_enhanced_input}"
+        
+        if needs_messier:
+            skywatch_enhanced_input = f"{skywatch_enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier]"
         
         # Re-invoke with enhanced input
         print(f"DEBUG - Re-invoking chain with enhanced input")

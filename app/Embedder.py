@@ -19,7 +19,7 @@ class Embedder:
                 self.document_index = json.load(f)
         else:
             self.document_index = {}
-    def load_and_split(self,**args):
+    def load_and_split(self, pdf_path):
         pass 
     def embed(self,pdf_path,store,save=False):
         """
