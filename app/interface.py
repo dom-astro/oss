@@ -199,11 +199,26 @@ elif st.session_state.get('authentication_status'):
     # Initialize model and vector store
     model, embedding_function = model_and_embedding_function(api_key)
     contextualize_q_prompt = create_contextualize_q_system_prompt()
-    prompt = create_prompt()
+    
+    # Initialize reasoning mode state if not exists
+    if "reasoning_mode" not in st.session_state:
+        st.session_state.reasoning_mode = False
+    
+    # Create prompt based on reasoning mode (dynamically updated)
+    prompt = create_prompt(reasoning_mode=st.session_state.get("reasoning_mode", False))
 
     if "vector" not in st.session_state:
         st.session_state.vector = load_vector_store(INDEX_DIR, embedding_function)
+    
+    # Rebuild chain if reasoning mode changed or chain doesn't exist
+    rebuild_chain = False
     if "chain" not in st.session_state:
+        rebuild_chain = True
+    elif "last_reasoning_mode" in st.session_state:
+        if st.session_state.last_reasoning_mode != st.session_state.reasoning_mode:
+            rebuild_chain = True
+    
+    if rebuild_chain:
         if st.session_state.vector is None:
             st.session_state.chain = None
         else:
@@ -213,6 +228,8 @@ elif st.session_state.get('authentication_status'):
                 prompt=prompt,
                 contextualize_q_prompt=contextualize_q_prompt,
             )
+            # Remember the reasoning mode for which this chain was built
+            st.session_state.last_reasoning_mode = st.session_state.reasoning_mode
 
     # Initialize session state
     if "available_documents" not in st.session_state:
@@ -274,6 +291,26 @@ elif st.session_state.get('authentication_status'):
     st.title("Bienvenue dans l'Observatoire Astronomique 🚀")
 
     with st.sidebar:
+        # Mode raisonnement toggle
+        st.subheader("⚙️ Options")
+        if "reasoning_mode" not in st.session_state:
+            st.session_state.reasoning_mode = False
+        
+        reasoning_toggle = st.toggle(
+            "🧠 Mode raisonnement détaillé",
+            value=st.session_state.reasoning_mode,
+            help="Affiche le processus de réflexion étape par étape pour chaque réponse"
+        )
+        
+        if reasoning_toggle != st.session_state.reasoning_mode:
+            st.session_state.reasoning_mode = reasoning_toggle
+            if reasoning_toggle:
+                st.success("✅ Mode raisonnement activé - Les réponses détailleront le processus de réflexion")
+            else:
+                st.info("Mode raisonnement désactivé - Réponses concises")
+        
+        st.divider()
+        
         st.subheader("Historique de la discussion")
         with st.expander("Historique de la discussion", expanded=False):
             if "admin" in user_roles:
@@ -425,11 +462,75 @@ elif st.session_state.get('authentication_status'):
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            if message.get("role") == "assistant" and message.get("sources"):
+                with st.expander("📚 Documents utilisés"):
+                    # Dictionary to avoid duplicates
+                    unique_sources = {}
+                    for item in message["sources"]:
+                        source = item.get("source") or "Unknown"
+                        content = item.get("content") or ""
+                        if source not in unique_sources:
+                            unique_sources[source] = content
 
-    # Chatbot - Text input interface
-    user_input = st.chat_input("Posez votre question ici...")
+                    for i, (source, content) in enumerate(unique_sources.items(), 1):
+                        # Extract just the filename from the path
+                        if source != 'Unknown':
+                            filename = source.split('\\')[-1].split('/')[-1]
+                        else:
+                            filename = source
+                        st.write(f"**{i}. {filename}**")
+                        st.write(f"```\n{content}\n```")
 
-    if user_input:
+    # Champ de saisie stylé + bouton Envoyer (style proche de st.chat_input)
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stHorizontalBlock"] { gap: 0rem; margin-bottom: -10px; align-items: flex-start; }
+        div[data-testid="column"] { padding-left: 0 !important; padding-right: 0 !important; }
+        input[type="text"] { border-radius: 999px; height: 44px; margin-top: 0 !important; }
+        div[data-testid="stButton"] > button { border-radius: 999px; height: 44px; min-width: 44px; padding: 0 14px; margin: 0 !important; margin-top: 12px !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    input_col, send_col = st.columns([0.95, 0.05], gap="small")
+    with input_col:
+        user_input = st.text_input("", placeholder="Posez votre question ici...", key="user_input_text")
+    with send_col:
+        submitted = st.button("➤", key="send_btn", use_container_width=True)
+
+    # Boutons de questions suggérées - directement en dessous
+    st.markdown("<div style='margin-top: 12px;'></div>", unsafe_allow_html=True)
+    col1, col2, col3, col4 = st.columns(4)
+    
+    suggested_questions = [
+        "Quel est le programme ce soir?",
+        "Quelle est la météo actuelle?",
+        "Comment utiliser le télescope?",
+        "Quels objets peut-on observer?"
+    ]
+    
+    question_clicked = None
+    with col1:
+        if st.button(suggested_questions[0], key="q1", use_container_width=True):
+            question_clicked = suggested_questions[0]
+    with col2:
+        if st.button(suggested_questions[1], key="q2", use_container_width=True):
+            question_clicked = suggested_questions[1]
+    with col3:
+        if st.button(suggested_questions[2], key="q3", use_container_width=True):
+            question_clicked = suggested_questions[2]
+    with col4:
+        if st.button(suggested_questions[3], key="q4", use_container_width=True):
+            question_clicked = suggested_questions[3]
+
+    # Si un bouton de question suggérée est cliqué, utiliser cette question
+    if question_clicked:
+        user_input = question_clicked
+        submitted = True
+
+    if submitted and user_input:
         # 1) Display/store user message
         with st.chat_message("user"):
             st.write(user_input)
@@ -443,7 +544,15 @@ elif st.session_state.get('authentication_status'):
             nb_tentatives = 0
             try:
                 with st.spinner("Réflexion en cours..."):
-                    response = get_response(user_input, st.session_state["chat_history"], st.session_state.vector, st.session_state.chain)
+                    # Utiliser le mode raisonnement si activé
+                    reasoning_mode = st.session_state.get("reasoning_mode", False)
+                    response, documents = get_response(
+                        user_input, 
+                        st.session_state["chat_history"], 
+                        st.session_state.vector, 
+                        st.session_state.chain,
+                        reasoning_mode=reasoning_mode
+                    )
                 break  # Exit if all goes well
             except Exception as e:
                 nb_tentatives += 1
@@ -454,13 +563,46 @@ elif st.session_state.get('authentication_status'):
         # 4) Final response: overwrite placeholder with real content
         with assistant_slot.chat_message("assistant"):
             st.write(response)
+            # Display source documents
+            sources_payload = []
+            if documents:
+                with st.expander("📚 Documents utilisés"):
+                    # Dictionary to avoid duplicates
+                    unique_sources = {}
+                    for doc in documents:
+                        # Try different ways to get the source
+                        source = None
+                        if hasattr(doc, 'metadata'):
+                            source = doc.metadata.get('source')
+                            if not source:
+                                # Try other possible keys
+                                source = doc.metadata.get('file') or doc.metadata.get('filename') or doc.metadata.get('path')
+                        
+                        if not source:
+                            source = 'Unknown'
+                        
+                        content = doc.page_content if hasattr(doc, 'page_content') else str(doc)
+                        sources_payload.append({"source": source, "content": content})
+                        
+                        if source not in unique_sources:
+                            unique_sources[source] = content
+                    
+                    for i, (source, content) in enumerate(unique_sources.items(), 1):
+                        # Extract just the filename from the path
+                        if source != 'Unknown':
+                            filename = source.split('\\')[-1].split('/')[-1]
+                        else:
+                            filename = source
+                        st.write(f"**{i}. {filename}**")
+                        st.write(f"```\n{content}\n```")
 
         # 5) History for RAG and for the page
         st.session_state["chat_history"].extend(
             [HumanMessage(content=user_input), AIMessage(content=response)]
         )
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        st.session_state.messages.append({"role": "assistant", "content": response, "sources": sources_payload})
 
         # Save chat history after each exchange
         save_chat_history()
+        st.session_state.user_input_text = ""
 
