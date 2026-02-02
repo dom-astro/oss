@@ -14,6 +14,7 @@ import json
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+import re
 
 # Cache pour les données SkyWatch
 SKYWATCH_CACHE = {
@@ -55,6 +56,120 @@ def should_use_messier_catalog(user_input: str) -> bool:
         print(f"INFO - Messier catalog usage triggered for: {user_input}")
     
     return should_use
+
+def get_messier_context(vector, doc_id: str, max_chunks: int = 5):
+    """Retrieve relevant chunks from Catalogue Messier by doc_id."""
+    if vector is None or not doc_id:
+        return []
+
+    try:
+        # Try similarity search first
+        try:
+            candidates = vector.similarity_search("Catalogue Messier objets M", k=max_chunks * 2)
+        except Exception:
+            candidates = []
+
+        messier_docs = [doc for doc in candidates if getattr(doc, "metadata", {}).get("doc_id") == doc_id]
+        if messier_docs:
+            return messier_docs[:max_chunks]
+
+        # Fallback: scan docstore for the first chunks of the document
+        docs = []
+        for ds_id in vector.index_to_docstore_id.values():
+            doc = vector.docstore.search(ds_id)
+            if getattr(doc, "metadata", {}).get("doc_id") == doc_id:
+                docs.append(doc)
+                if len(docs) >= max_chunks:
+                    break
+        return docs
+    except Exception as e:
+        print(f"WARNING - Failed to load Messier context: {e}")
+        return []
+
+def load_messier_images_from_assets(max_images: int = 5) -> list:
+    """
+    Load ALL Messier object images from assets/images/catalogue_messier folder.
+    Images should be named M-001.jpg, M-002.jpg, ... M-110.jpg
+    Note: max_images is ignored - all images are loaded to support filtering by mention in answer
+    
+    Args:
+        max_images (int): Ignored - loads all available images
+    
+    Returns:
+        list: List of dicts with 'image_path', 'messier_number', 'source'
+    """
+    images_data = []
+    
+    try:
+        assets_path = Path(__file__).resolve().parent.parent / "assets" / "images" / "catalogue_messier"
+        
+        if not assets_path.exists():
+            print(f"WARNING - Messier images folder not found at {assets_path}")
+            return images_data
+        
+        # Get all image files (jpg, png, jpeg)
+        image_files = []
+        for ext in ['*.jpg', '*.JPG', '*.png', '*.PNG', '*.jpeg', '*.JPEG']:
+            image_files.extend(sorted(assets_path.glob(ext)))
+        
+        # Sort by filename to get M-001, M-002, etc. in order (load ALL, not just 5)
+        image_files = sorted(image_files)
+        
+        for img_path in image_files:
+            try:
+                # Extract Messier number from filename (e.g., M-001 -> M1)
+                filename = img_path.stem  # Get filename without extension
+                messier_number = None
+                if filename.upper().startswith("M-"):
+                    try:
+                        # Extract number and handle leading zeros (M-001 -> 1, M-042 -> 42)
+                        messier_number = int(filename.split("-")[1].lstrip("0") or "0")
+                    except Exception:
+                        messier_number = None
+                
+                images_data.append({
+                    'image_path': str(img_path),
+                    'messier_label': filename,  # M-001, M-002, etc.
+                    'messier_number': messier_number,
+                    'source': 'Catalogue Messier'
+                })
+                print(f"INFO - Loaded image: {filename}")
+                
+            except Exception as e:
+                print(f"WARNING - Could not process image {img_path}: {e}")
+                continue
+        
+        print(f"INFO - Total Messier images loaded: {len(images_data)}")
+        
+    except Exception as e:
+        print(f"ERROR - Could not load Messier images: {e}")
+    
+    return images_data
+
+def find_messier_info(messier_number: int, messier_docs: list) -> str:
+    """Find a short info snippet for a given Messier number in retrieved docs."""
+    if not messier_number or not messier_docs:
+        return ""
+
+    patterns = [f"M{messier_number}", f"M {messier_number}", f"M{messier_number:03d}"]
+    for doc in messier_docs:
+        text = doc.page_content if hasattr(doc, "page_content") else str(doc)
+        if any(pat in text for pat in patterns):
+            # Return a trimmed snippet
+            return text[:600]
+    return ""
+
+def extract_messier_numbers(text: str) -> list:
+    """Extract Messier numbers from text in order of appearance."""
+    if not text:
+        return []
+    pattern = re.compile(r"\bM\s*-?\s*(\d{1,3})\b", re.IGNORECASE)
+    numbers = []
+    for match in pattern.finditer(text):
+        num = int(match.group(1))
+        if 1 <= num <= 110 and num not in numbers:
+            numbers.append(num)
+    return numbers
 
 def fetch_skywatch_data() -> str:
     """Fetch weather and program data from skywatch website with 5-minute cache"""
@@ -315,7 +430,7 @@ def create_prompt(reasoning_mode=False):
 
           ---
           **Notes supplémentaires :**
-          - **Pollution lumineuse** : Brest a un ciel de classe Bortle 5–6. Privilégiez les filtres à bande étroite pour les nébuleuses.
+          - **Pollution lumineuse** : La Pointe du Diable a un ciel de classe Bortle 5–6. Privilégiez les filtres à bande étroite pour les nébuleuses.
           - **Prochains objets intéressants** : [Ex. : *"M81/M82 seront visibles après minuit."*].
           - **Source des données** : Informations du document "Catalogue Messier.pdf" + conditions d'observation de SkyWatch.
         
@@ -384,7 +499,16 @@ def build_chains(vector, model, prompt, contextualize_q_prompt):
 def get_response(user_input: str, chat_history: list, vector, chain, reasoning_mode=False):
     if vector is None:
         return ("Je n'ai trouvé aucun document. "
-        "Veuillez d'abord en téléverser dans la barre latérale."), []
+        "Veuillez d'abord en téléverser dans la barre latérale."), [], []
+
+    # Load document index to get proper filenames
+    doc_index_path = Path(__file__).resolve().parent.parent / "document_index.json"
+    doc_id_to_name = {}
+    name_to_id = {}
+    if doc_index_path.exists():
+        with open(doc_index_path, "r", encoding="utf-8") as f:
+            name_to_id = json.load(f)
+            doc_id_to_name = {v: k for k, v in name_to_id.items()}
     
     # Check if we need to fetch skywatch data BEFORE calling chain
     skywatch_doc = None
@@ -400,6 +524,22 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     
     # Check if we need to explicitly search for Messier catalog
     needs_messier = should_use_messier_catalog(user_input)
+    messier_images = []  # Will store loaded image paths
+    messier_docs = []
+    
+    if needs_messier:
+        # Load images from assets instead of extracting from PDF
+        print(f"INFO - Loading Messier images from assets")
+        messier_images = load_messier_images_from_assets(max_images=5)
+        messier_doc_id = name_to_id.get("Catalogue Messier.pdf")
+        if messier_doc_id:
+            messier_docs = get_messier_context(vector, messier_doc_id, max_chunks=5)
+            if messier_docs:
+                print(f"INFO - Loaded {len(messier_docs)} Messier context chunks")
+        # Attach info snippets to images
+        if messier_docs and messier_images:
+            for img in messier_images:
+                img["info"] = find_messier_info(img.get("messier_number"), messier_docs)
     
     # Add reasoning mode indicator to input if active
     enhanced_input = user_input
@@ -409,7 +549,13 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     
     # If Messier objects are mentioned, enhance the query to include catalog search
     if needs_messier:
-        enhanced_input = f"{enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
+        messier_context_text = "\n\n".join([doc.page_content for doc in messier_docs]) if messier_docs else ""
+        enhanced_input = (
+            f"{enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' "
+            "pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
+        )
+        if messier_context_text:
+            enhanced_input = f"{enhanced_input}\n\nCONTEXTE CATALOGUE MESSIER:\n{messier_context_text}"
         print("INFO - Enhanced input to search Messier catalog")
     
     # Invoke the chain with original input
@@ -433,7 +579,13 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
             skywatch_enhanced_input = f"[MODE RAISONNEMENT ACTIVÉ]\n\n{skywatch_enhanced_input}"
         
         if needs_messier:
-            skywatch_enhanced_input = f"{skywatch_enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier]"
+            messier_context_text = "\n\n".join([doc.page_content for doc in messier_docs]) if messier_docs else ""
+            skywatch_enhanced_input = (
+                f"{skywatch_enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' "
+                "pour obtenir les informations sur les objets Messier]"
+            )
+            if messier_context_text:
+                skywatch_enhanced_input = f"{skywatch_enhanced_input}\n\nCONTEXTE CATALOGUE MESSIER:\n{messier_context_text}"
         
         # Re-invoke with enhanced input
         print(f"DEBUG - Re-invoking chain with enhanced input")
@@ -443,14 +595,9 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
         # Add skywatch doc back to beginning
         documents.insert(0, skywatch_doc)
     
-    # Load document index to get proper filenames
-    doc_index_path = Path(__file__).resolve().parent.parent / "document_index.json"
-    doc_id_to_name = {}
-    if doc_index_path.exists():
-        with open(doc_index_path, "r", encoding="utf-8") as f:
-            name_to_id = json.load(f)
-            # Reverse the mapping: id -> name
-            doc_id_to_name = {v: k for k, v in name_to_id.items()}
+    # Add Messier docs to sources if available
+    if messier_docs:
+        documents = messier_docs + documents
     
     # Enrich documents with proper filenames
     for doc in documents:
@@ -458,8 +605,22 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
             doc_id = doc.metadata.get('doc_id')
             if doc_id and doc_id in doc_id_to_name:
                 doc.metadata['source'] = doc_id_to_name[doc_id]
-    
-    return response['answer'], documents
+
+    # Filter Messier images to match the objects mentioned in the answer
+    if needs_messier and messier_images:
+        mentioned_numbers = extract_messier_numbers(response.get('answer', ''))
+        if mentioned_numbers:
+            ordered_images = []
+            for num in mentioned_numbers:
+                for img in messier_images:
+                    if img.get('messier_number') == num:
+                        ordered_images.append(img)
+                        break
+            messier_images = ordered_images[:5]
+        else:
+            messier_images = messier_images[:5]
+
+    return response['answer'], documents, messier_images
 
 if __name__ == '__main__' :
     chat_history = []
@@ -474,7 +635,7 @@ if __name__ == '__main__' :
         user_input = input("user : ")
         while True:
             try:
-                response, documents = get_response(user_input,chat_history,vector,chain)
+                response, documents, messier_images = get_response(user_input,chat_history,vector,chain)
             except Exception as e :
                 print(e)
                 continue
@@ -490,3 +651,5 @@ if __name__ == '__main__' :
         print("\nDocuments utilisés:")
         for doc in documents:
             print(f"- {doc.metadata.get('source', 'Unknown')}")
+        if messier_images:
+            print(f"\nImages Messier trouvées: {len(messier_images)}")

@@ -542,7 +542,7 @@ elif st.session_state.get('authentication_status'):
                 with st.spinner("Réflexion en cours..."):
                     # Utiliser le mode raisonnement si activé
                     reasoning_mode = st.session_state.get("reasoning_mode", False)
-                    response, documents = get_response(
+                    response, documents, messier_images = get_response(
                         user_input, 
                         st.session_state["chat_history"], 
                         st.session_state.vector, 
@@ -559,6 +559,35 @@ elif st.session_state.get('authentication_status'):
         # 4) Final response: overwrite placeholder with real content
         with assistant_slot.chat_message("assistant"):
             st.write(response)
+            
+            # Display Messier images if available
+            if messier_images:
+                st.markdown("---")
+                st.subheader("🔭 Photographies des objets Messier")
+                
+                # Display each image with its label
+                for img_data in messier_images:
+                    try:
+                        # Create a container for image and context
+                        col1, col2 = st.columns([1, 1])
+                        
+                        with col1:
+                            st.image(img_data['image_path'], width=64)
+                            st.caption(f"📷 {img_data['messier_label']} - {img_data['source']}")
+                        
+                        with col2:
+                            st.markdown(f"### {img_data['messier_label']}")
+                            st.markdown("**📋 Informations:**")
+                            info_text = img_data.get("info")
+                            if info_text:
+                                st.markdown(f"```\n{info_text}\n```")
+                            else:
+                                st.markdown("*Aucune information trouvée dans Catalogue Messier.pdf pour cet objet.*")
+                        
+                        st.markdown("---")
+                    except Exception as e:
+                        st.warning(f"Erreur lors de l'affichage de l'image {img_data['messier_label']}: {e}")
+            
             # Display source documents
             sources_payload = []
             if documents:
