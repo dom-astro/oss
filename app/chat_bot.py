@@ -155,16 +155,16 @@ def find_messier_info(messier_number: int, messier_docs: list) -> str:
 
     # Build a comprehensive list of patterns to search for
     patterns = [
-        f"M {messier_number}",          # M 31
-        f"M{messier_number}",           # M31
-        f"M -{messier_number}",         # M -31
-        f"M-{messier_number:03d}",      # M-031
-        f"M {messier_number:03d}",      # M 031
-        f"M{messier_number:03d}",       # M031
-        f"( M {messier_number}",        # ( M 31
-        f"( M{messier_number}",         # ( M31
-        f"M {messier_number:02d}",      # M 31 (without leading zero)
-        f"M{messier_number:02d}",       # M31 (without leading zero)
+        f"M {messier_number} ",          # M 31 with space after
+        f"M{messier_number} ",           # M31 with space after
+        f"M -{messier_number}",          # M -31
+        f"M-{messier_number:03d}",       # M-031
+        f"M {messier_number:03d}",       # M 031
+        f"M{messier_number:03d}",        # M031
+        f"{messier_number}.",            # Just number with period (e.g., "31.")
+        f"M {messier_number:02d}",       # M 31 (2-digit)
+        f"M{messier_number:02d}",        # M31 (2-digit)
+        f"M {messier_number}\n",         # M 31 at line end
     ]
     
     best_match = ""
@@ -180,13 +180,13 @@ def find_messier_info(messier_number: int, messier_docs: list) -> str:
             pos = text_lower.find(pat_lower)
             if pos >= 0:
                 # Prefer matches found earlier in the chunk (likely the header)
-                if pos < best_position or (pos == best_position and len(text) > len(best_match)):
+                if pos < best_position:
                     best_match = text
                     best_position = pos
-                break
+                    break  # Found a match in this doc, move to next doc
     
-    # Return up to 900 chars for better information display
-    return best_match[:900] if best_match else ""
+    # Return up to 1200 chars for better information display
+    return best_match[:1200] if best_match else ""
 
 def extract_messier_numbers(text: str) -> list:
     """Extract Messier numbers from text in order of appearance - handles multiple formats."""
@@ -579,18 +579,23 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     messier_docs = []
     
     if needs_messier:
-        # Load images from assets instead of extracting from PDF
+        # Load ALL images from assets to filter later based on response
         print(f"INFO - Loading Messier images from assets")
-        messier_images = load_messier_images_from_assets(max_images=5)
+        messier_images = load_messier_images_from_assets(max_images=110)  # Load all available
         messier_doc_id = name_to_id.get("Catalogue Messier.pdf")
         if messier_doc_id:
-            messier_docs = get_messier_context(vector, messier_doc_id, max_chunks=5)
+            messier_docs = get_messier_context(vector, messier_doc_id, max_chunks=110)  # Retrieve all chunks
             if messier_docs:
                 print(f"INFO - Loaded {len(messier_docs)} Messier context chunks")
-        # Attach info snippets to images
+        # Attach info snippets to ALL images before filtering
         if messier_docs and messier_images:
             for img in messier_images:
-                img["info"] = find_messier_info(img.get("messier_number"), messier_docs)
+                info = find_messier_info(img.get("messier_number"), messier_docs)
+                img["info"] = info
+                if info:
+                    print(f"DEBUG - Found info for M{img.get('messier_number')}: {len(info)} chars")
+                else:
+                    print(f"DEBUG - No info found for M{img.get('messier_number')}")
     
     # Add reasoning mode indicator to input if active
     enhanced_input = user_input
