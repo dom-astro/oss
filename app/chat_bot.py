@@ -57,31 +57,33 @@ def should_use_messier_catalog(user_input: str) -> bool:
     
     return should_use
 
-def get_messier_context(vector, doc_id: str, max_chunks: int = 5):
-    """Retrieve relevant chunks from Catalogue Messier by doc_id."""
+def get_messier_context(vector, doc_id: str, max_chunks: int = 110):
+    """Retrieve relevant chunks from Catalogue Messier by doc_id (increased significantly for all objects)."""
     if vector is None or not doc_id:
         return []
 
     try:
-        # Try similarity search first
-        try:
-            candidates = vector.similarity_search("Catalogue Messier objets M", k=max_chunks * 2)
-        except Exception:
-            candidates = []
-
-        messier_docs = [doc for doc in candidates if getattr(doc, "metadata", {}).get("doc_id") == doc_id]
-        if messier_docs:
-            return messier_docs[:max_chunks]
-
-        # Fallback: scan docstore for the first chunks of the document
+        # Scan docstore for chunks of the Messier document - get as many as needed
         docs = []
         for ds_id in vector.index_to_docstore_id.values():
             doc = vector.docstore.search(ds_id)
             if getattr(doc, "metadata", {}).get("doc_id") == doc_id:
                 docs.append(doc)
-                if len(docs) >= max_chunks:
+                if len(docs) >= max_chunks:  # Limit to 110 to cover all Messier objects
                     break
-        return docs
+        
+        if docs:
+            print(f"INFO - Retrieved {len(docs)} chunks from Catalogue Messier")
+            return docs
+        
+        # Fallback: try similarity search
+        try:
+            candidates = vector.similarity_search("Catalogue Messier objets M", k=50)
+            messier_docs = [doc for doc in candidates if getattr(doc, "metadata", {}).get("doc_id") == doc_id]
+            return messier_docs[:max_chunks]
+        except Exception as e:
+            print(f"WARNING - Similarity search failed: {e}")
+            return []
     except Exception as e:
         print(f"WARNING - Failed to load Messier context: {e}")
         return []
@@ -147,28 +149,77 @@ def load_messier_images_from_assets(max_images: int = 5) -> list:
     return images_data
 
 def find_messier_info(messier_number: int, messier_docs: list) -> str:
-    """Find a short info snippet for a given Messier number in retrieved docs."""
+    """Find comprehensive info snippet for a given Messier number - search across all chunks."""
     if not messier_number or not messier_docs:
         return ""
 
-    patterns = [f"M{messier_number}", f"M {messier_number}", f"M{messier_number:03d}"]
+    # Build a comprehensive list of patterns to search for
+    patterns = [
+        f"M {messier_number}",          # M 31
+        f"M{messier_number}",           # M31
+        f"M -{messier_number}",         # M -31
+        f"M-{messier_number:03d}",      # M-031
+        f"M {messier_number:03d}",      # M 031
+        f"M{messier_number:03d}",       # M031
+        f"( M {messier_number}",        # ( M 31
+        f"( M{messier_number}",         # ( M31
+        f"M {messier_number:02d}",      # M 31 (without leading zero)
+        f"M{messier_number:02d}",       # M31 (without leading zero)
+    ]
+    
+    best_match = ""
+    best_position = float('inf')  # Track where in the text the match was found
+    
     for doc in messier_docs:
         text = doc.page_content if hasattr(doc, "page_content") else str(doc)
-        if any(pat in text for pat in patterns):
-            # Return a trimmed snippet
-            return text[:600]
-    return ""
+        text_lower = text.lower()
+        
+        # Check if any pattern matches
+        for pat in patterns:
+            pat_lower = pat.lower()
+            pos = text_lower.find(pat_lower)
+            if pos >= 0:
+                # Prefer matches found earlier in the chunk (likely the header)
+                if pos < best_position or (pos == best_position and len(text) > len(best_match)):
+                    best_match = text
+                    best_position = pos
+                break
+    
+    # Return up to 900 chars for better information display
+    return best_match[:900] if best_match else ""
 
 def extract_messier_numbers(text: str) -> list:
-    """Extract Messier numbers from text in order of appearance."""
+    """Extract Messier numbers from text in order of appearance - handles multiple formats."""
     if not text:
         return []
-    pattern = re.compile(r"\bM\s*-?\s*(\d{1,3})\b", re.IGNORECASE)
+    
+    # Multiple patterns to catch different formats: M1, M 1, M-1, M01, M001, (M1), M 31, etc.
+    patterns = [
+        r"\bM\s*-?\s*(\d{1,3})\b",      # M 31, M31, M-31, M 031, etc.
+        r"\(M\s*(\d{1,3})\)",           # (M 31)
+        r"Messier\s+(\d{1,3})",         # Messier 31
+        r"M\d+",                         # Catch M followed by digits anywhere
+    ]
+    
     numbers = []
-    for match in pattern.finditer(text):
-        num = int(match.group(1))
-        if 1 <= num <= 110 and num not in numbers:
-            numbers.append(num)
+    for pattern_str in patterns:
+        pattern = re.compile(pattern_str, re.IGNORECASE)
+        for match in pattern.finditer(text):
+            try:
+                # Extract the number - handle both direct match and group(1)
+                if match.groups():
+                    num = int(match.group(1))
+                else:
+                    # Extract digits from the match
+                    match_str = match.group(0)
+                    digits = ''.join(c for c in match_str if c.isdigit())
+                    num = int(digits)
+                
+                if 1 <= num <= 110 and num not in numbers:
+                    numbers.append(num)
+            except (ValueError, IndexError, AttributeError):
+                continue
+    
     return numbers
 
 def fetch_skywatch_data() -> str:
@@ -549,13 +600,11 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     
     # If Messier objects are mentioned, enhance the query to include catalog search
     if needs_messier:
-        messier_context_text = "\n\n".join([doc.page_content for doc in messier_docs]) if messier_docs else ""
+        # Only inject actual Messier context without doubling it
         enhanced_input = (
-            f"{enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' "
+            f"{enhanced_input}\n\n[IMPORTANT: Utilise le document 'Catalogue Messier.pdf' "
             "pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
         )
-        if messier_context_text:
-            enhanced_input = f"{enhanced_input}\n\nCONTEXTE CATALOGUE MESSIER:\n{messier_context_text}"
         print("INFO - Enhanced input to search Messier catalog")
     
     # Invoke the chain with original input
@@ -579,13 +628,10 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
             skywatch_enhanced_input = f"[MODE RAISONNEMENT ACTIVÉ]\n\n{skywatch_enhanced_input}"
         
         if needs_messier:
-            messier_context_text = "\n\n".join([doc.page_content for doc in messier_docs]) if messier_docs else ""
             skywatch_enhanced_input = (
-                f"{skywatch_enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' "
+                f"{skywatch_enhanced_input}\n\n[IMPORTANT: Utilise le document 'Catalogue Messier.pdf' "
                 "pour obtenir les informations sur les objets Messier]"
             )
-            if messier_context_text:
-                skywatch_enhanced_input = f"{skywatch_enhanced_input}\n\nCONTEXTE CATALOGUE MESSIER:\n{messier_context_text}"
         
         # Re-invoke with enhanced input
         print(f"DEBUG - Re-invoking chain with enhanced input")
@@ -609,16 +655,29 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
     # Filter Messier images to match the objects mentioned in the answer
     if needs_messier and messier_images:
         mentioned_numbers = extract_messier_numbers(response.get('answer', ''))
-        if mentioned_numbers:
+        print(f"DEBUG - Full answer text: {response.get('answer', '')[:500]}")
+        print(f"DEBUG - Mentioned Messier numbers in answer: {mentioned_numbers}")
+        print(f"DEBUG - Available image numbers: {[img.get('messier_number') for img in messier_images[:20]]}")
+        
+        if mentioned_numbers and len(mentioned_numbers) > 0:
             ordered_images = []
-            for num in mentioned_numbers:
+            for num in mentioned_numbers[:5]:  # Only take first 5 mentioned
+                found = False
                 for img in messier_images:
                     if img.get('messier_number') == num:
                         ordered_images.append(img)
+                        print(f"DEBUG - ✓ Matched M{num} from answer with image")
+                        found = True
                         break
-            messier_images = ordered_images[:5]
+                if not found:
+                    print(f"DEBUG - ✗ M{num} mentioned but image not found")
+            
+            messier_images = ordered_images
+            print(f"DEBUG - Final selected {len(messier_images)} images from {len(mentioned_numbers)} mentioned objects")
+            print(f"DEBUG - Final selected image numbers: {[img.get('messier_number') for img in messier_images]}")
         else:
-            messier_images = messier_images[:5]
+            print(f"DEBUG - No Messier numbers found in answer - clearing images")
+            messier_images = []
 
     return response['answer'], documents, messier_images
 

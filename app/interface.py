@@ -565,24 +565,23 @@ elif st.session_state.get('authentication_status'):
                 st.markdown("---")
                 st.subheader("🔭 Photographies des objets Messier")
                 
-                # Display each image with its label
-                for img_data in messier_images:
+                # Display each image with its information
+                for idx, img_data in enumerate(messier_images, 1):
                     try:
-                        # Create a container for image and context
-                        col1, col2 = st.columns([1, 1])
+                        # Create a container for each Messier object
+                        col_info, col_img = st.columns([0.7, 0.3], gap="medium")
                         
-                        with col1:
-                            st.image(img_data['image_path'], width=64)
-                            st.caption(f"📷 {img_data['messier_label']} - {img_data['source']}")
-                        
-                        with col2:
-                            st.markdown(f"### {img_data['messier_label']}")
-                            st.markdown("**📋 Informations:**")
+                        with col_info:
+                            st.markdown(f"**{idx}. {img_data['messier_label']}**")
                             info_text = img_data.get("info")
                             if info_text:
-                                st.markdown(f"```\n{info_text}\n```")
+                                st.markdown(info_text)
                             else:
                                 st.markdown("*Aucune information trouvée dans Catalogue Messier.pdf pour cet objet.*")
+                        
+                        with col_img:
+                            st.image(img_data['image_path'], width=64)
+                            st.caption(img_data['source'])
                         
                         st.markdown("---")
                     except Exception as e:
