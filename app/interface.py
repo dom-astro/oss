@@ -46,7 +46,7 @@ st.set_page_config(
     page_icon=":astronaut:",  # Icône du navigateur
     layout="wide",  # Disposition large (sidebar + contenu)
     menu_items={
-        'About': "Observatoire Astronomique - IMT Atlantique, campus de Brest"
+        'About': "Observatoire Astronomique - IMT Atlantique, campus de Brest\nAssociation Gens de la Lune"
     }
 )
 

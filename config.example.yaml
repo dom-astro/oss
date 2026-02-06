@@ -1,6 +1,14 @@
 cookie:
   name: streamlit_auth
-  key: "clé_sécurisée_générée_ici"
+  key: "generate_a_secure_random_key_here"
   expiry_days: 0
 credentials:
   usernames:
+    # Example user - REPLACE WITH YOUR OWN
+    username_example:
+      email: user@example.com
+      first_name: Example
+      last_name: User
+      password: "hashed_password_here" # Use streamlit-authenticator to hash passwords
+      roles:
+        - utilisateur

@@ -12,6 +12,7 @@
   - [Construction des images Docker](#4-construction-des-images-docker)
   - [Lancement des conteneurs](#5-lancer-les-conteneurs)
   - [Utilisation de VS Code avec les conteneurs](#7-utiliser-vs-code-avec-les-conteneurs)
+  - [Déploiement sur Streamlit Cloud](#déploiement-sur-streamlit-cloud)
 - [Guide d'utilisation](#guide-dutilisation)
   - [Gestion des comptes](#gestion-des-comptes)
     - [Comment créer un compte ?](#comment-créer-un-compte)
@@ -189,6 +190,89 @@ Puis ouvrir [http://localhost:8501](http://localhost:8501)
 - Ouvrir `ai-agent/` dans VS Code.
 - `F1` > **Dev Containers: Attach to Running Container**.
 - Travailler directement dans l'environnement conteneurisé.
+
+### Déploiement sur Streamlit Cloud
+
+Cette application peut être déployée sur **[Streamlit Cloud](https://streamlit.io/cloud)** pour un accès public sur internet.
+
+#### Prérequis
+
+1. Compte GitHub avec ce dépôt (public ou privé)
+2. Compte [Streamlit Cloud](https://share.streamlit.io/)
+3. Clé API Mistral (voir section [3.1](#31-créer-une-clé-api-mistral))
+
+#### Étapes de déploiement
+
+##### 1. Créer un dépôt GitHub
+
+Push votre code sur GitHub (public ou privé). Assurez-vous que `.env` et `config.yaml` sont dans `.gitignore` pour ne pas exposer les secrets.
+
+##### 2. Connecter Streamlit Cloud
+
+1. Allez sur [https://share.streamlit.io/](https://share.streamlit.io/)
+2. Cliquez sur **"Deploy an app"**
+3. Connectez votre compte GitHub
+4. Sélectionnez ce dépôt
+5. Choisissez la branche principale
+6. Spécifiez le chemin du fichier d'entrée : `app/interface.py`
+
+##### 3. Configurer les secrets
+
+1. Une fois l'app déployée, cliquez sur **`...`** (menu) → **Settings**
+2. Allez à l'onglet **Secrets**
+3. Ajoutez vos variables secrètes au format TOML :
+
+```toml
+# .streamlit/secrets.toml
+MISTRAL_API_KEY = "votre_clé_api_mistral"
+HF_TOKEN = "votre_token_huggingface_ici"
+SMTP_USER = "votre.email@gmail.com"
+SMTP_PASSWORD = "votre_mot_de_passe_d'application"
+
+# Configuration dynamique
+config_cookie_key = "clé_sécurisée_générée_ici"
+```
+
+**Note :** Ces secrets ne seront PAS dans le dépôt Git, ils sont gérés secrètement par Streamlit Cloud.
+
+##### 4. Adapter le code pour Streamlit Cloud (optionnel)
+
+Si vous voulez éviter les fichiers physiques `config.yaml`, vous pouvez les générer dynamiquement depuis les secrets :
+
+```python
+import streamlit as st
+import yaml
+import os
+
+# En développement local : utiliser config.yaml
+# En production (Streamlit Cloud) : générer depuis secrets
+if os.path.exists("config.yaml"):
+    with open("config.yaml") as f:
+        config = yaml.safe_load(f)
+else:
+    # Générer depuis secrets Streamlit Cloud
+    config = {
+        "cookie": {
+            "name": "streamlit_auth",
+            "key": st.secrets.get("config_cookie_key", "default_key"),
+            "expiry_days": 0
+        },
+        "credentials": {...}
+    }
+```
+
+##### 5. Redéployer après modification
+
+Streamlit Cloud redéploiera automatiquement à chaque push sur GitHub.  
+Pour les changements de secrets, allez dans **Settings** et cliquez sur **Redeploy**.
+
+#### Limitations de Streamlit Cloud
+
+- ⚠️ **Stockage temporaire :** Les fichiers sont supprimés à chaque redéploiement
+- ⚠️ **Pas de persistance FAISS :** L'index FAISS doit être recréé à chaque déploiement ou hébergé externalement
+- ⚠️ **Ressources limitées :** 1 GB RAM, pas de GPU gratuit
+
+**Solution :** Pour la production, considérez **Docker sur Railway, Heroku, ou AWS**.
 
 # Guide d'utilisation
 
