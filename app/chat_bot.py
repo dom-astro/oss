@@ -93,6 +93,171 @@ def should_use_messier_catalog(user_input: str) -> bool:
     
     return should_use
 
+def get_messier_context(vector, doc_id: str, max_chunks: int = 110):
+    """Retrieve relevant chunks from Catalogue Messier by doc_id (increased significantly for all objects)."""
+    if vector is None or not doc_id:
+        return []
+
+    try:
+        # Scan docstore for chunks of the Messier document - get as many as needed
+        docs = []
+        for ds_id in vector.index_to_docstore_id.values():
+            doc = vector.docstore.search(ds_id)
+            if getattr(doc, "metadata", {}).get("doc_id") == doc_id:
+                docs.append(doc)
+                if len(docs) >= max_chunks:  # Limit to 110 to cover all Messier objects
+                    break
+        
+        if docs:
+            print(f"INFO - Retrieved {len(docs)} chunks from Catalogue Messier")
+            return docs
+        
+        # Fallback: try similarity search
+        try:
+            candidates = vector.similarity_search("Catalogue Messier objets M", k=50)
+            messier_docs = [doc for doc in candidates if getattr(doc, "metadata", {}).get("doc_id") == doc_id]
+            return messier_docs[:max_chunks]
+        except Exception as e:
+            print(f"WARNING - Similarity search failed: {e}")
+            return []
+    except Exception as e:
+        print(f"WARNING - Failed to load Messier context: {e}")
+        return []
+
+def load_messier_images_from_assets(max_images: int = 5) -> list:
+    """
+    Load ALL Messier object images from assets/images/catalogue_messier folder.
+    Images should be named M-001.jpg, M-002.jpg, ... M-110.jpg
+    Note: max_images is ignored - all images are loaded to support filtering by mention in answer
+    
+    Args:
+        max_images (int): Ignored - loads all available images
+    
+    Returns:
+        list: List of dicts with 'image_path', 'messier_number', 'source'
+    """
+    images_data = []
+    
+    try:
+        assets_path = Path(__file__).resolve().parent.parent / "assets" / "images" / "catalogue_messier"
+        
+        if not assets_path.exists():
+            print(f"WARNING - Messier images folder not found at {assets_path}")
+            return images_data
+        
+        # Get all image files (jpg, png, jpeg)
+        image_files = []
+        for ext in ['*.jpg', '*.JPG', '*.png', '*.PNG', '*.jpeg', '*.JPEG']:
+            image_files.extend(sorted(assets_path.glob(ext)))
+        
+        # Sort by filename to get M-001, M-002, etc. in order (load ALL, not just 5)
+        image_files = sorted(image_files)
+        
+        for img_path in image_files:
+            try:
+                # Extract Messier number from filename (e.g., M-001 -> M1)
+                filename = img_path.stem  # Get filename without extension
+                messier_number = None
+                if filename.upper().startswith("M-"):
+                    try:
+                        # Extract number and handle leading zeros (M-001 -> 1, M-042 -> 42)
+                        messier_number = int(filename.split("-")[1].lstrip("0") or "0")
+                    except Exception:
+                        messier_number = None
+                
+                images_data.append({
+                    'image_path': str(img_path),
+                    'messier_label': filename,  # M-001, M-002, etc.
+                    'messier_number': messier_number,
+                    'source': 'Catalogue Messier'
+                })
+                print(f"INFO - Loaded image: {filename}")
+                
+            except Exception as e:
+                print(f"WARNING - Could not process image {img_path}: {e}")
+                continue
+        
+        print(f"INFO - Total Messier images loaded: {len(images_data)}")
+        
+    except Exception as e:
+        print(f"ERROR - Could not load Messier images: {e}")
+    
+    return images_data
+
+def find_messier_info(messier_number: int, messier_docs: list) -> str:
+    """Find comprehensive info snippet for a given Messier number - search across all chunks."""
+    if not messier_number or not messier_docs:
+        return ""
+
+    # Build a comprehensive list of patterns to search for
+    patterns = [
+        f"M {messier_number} ",          # M 31 with space after
+        f"M{messier_number} ",           # M31 with space after
+        f"M -{messier_number}",          # M -31
+        f"M-{messier_number:03d}",       # M-031
+        f"M {messier_number:03d}",       # M 031
+        f"M{messier_number:03d}",        # M031
+        f"{messier_number}.",            # Just number with period (e.g., "31.")
+        f"M {messier_number:02d}",       # M 31 (2-digit)
+        f"M{messier_number:02d}",        # M31 (2-digit)
+        f"M {messier_number}\n",         # M 31 at line end
+    ]
+    
+    best_match = ""
+    best_position = float('inf')  # Track where in the text the match was found
+    
+    for doc in messier_docs:
+        text = doc.page_content if hasattr(doc, "page_content") else str(doc)
+        text_lower = text.lower()
+        
+        # Check if any pattern matches
+        for pat in patterns:
+            pat_lower = pat.lower()
+            pos = text_lower.find(pat_lower)
+            if pos >= 0:
+                # Prefer matches found earlier in the chunk (likely the header)
+                if pos < best_position:
+                    best_match = text
+                    best_position = pos
+                    break  # Found a match in this doc, move to next doc
+    
+    # Return up to 1200 chars for better information display
+    return best_match[:1200] if best_match else ""
+
+def extract_messier_numbers(text: str) -> list:
+    """Extract Messier numbers from text in order of appearance - handles multiple formats."""
+    if not text:
+        return []
+    
+    # Multiple patterns to catch different formats: M1, M 1, M-1, M01, M001, (M1), M 31, etc.
+    patterns = [
+        r"\bM\s*-?\s*(\d{1,3})\b",      # M 31, M31, M-31, M 031, etc.
+        r"\(M\s*(\d{1,3})\)",           # (M 31)
+        r"Messier\s+(\d{1,3})",         # Messier 31
+        r"M\d+",                         # Catch M followed by digits anywhere
+    ]
+    
+    numbers = []
+    for pattern_str in patterns:
+        pattern = re.compile(pattern_str, re.IGNORECASE)
+        for match in pattern.finditer(text):
+            try:
+                # Extract the number - handle both direct match and group(1)
+                if match.groups():
+                    num = int(match.group(1))
+                else:
+                    # Extract digits from the match
+                    match_str = match.group(0)
+                    digits = ''.join(c for c in match_str if c.isdigit())
+                    num = int(digits)
+                
+                if 1 <= num <= 110 and num not in numbers:
+                    numbers.append(num)
+            except (ValueError, IndexError, AttributeError):
+                continue
+    
+    return numbers
+
 def fetch_skywatch_data() -> str:
     """
     Récupère les données météo et astronomiques du site SkyWatch avec système de cache.
@@ -402,7 +567,7 @@ def create_prompt(reasoning_mode=False):
 
           ---
           **Notes supplémentaires :**
-          - **Pollution lumineuse** : Brest a un ciel de classe Bortle 5–6. Privilégiez les filtres à bande étroite pour les nébuleuses.
+          - **Pollution lumineuse** : La Pointe du Diable a un ciel de classe Bortle 5–6. Privilégiez les filtres à bande étroite pour les nébuleuses.
           - **Prochains objets intéressants** : [Ex. : *"M81/M82 seront visibles après minuit."*].
           - **Source des données** : Informations du document "Catalogue Messier.pdf" + conditions d'observation de SkyWatch.
         
@@ -565,7 +730,10 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
             skywatch_enhanced_input = f"[MODE RAISONNEMENT ACTIVÉ]\n\n{skywatch_enhanced_input}"
         
         if needs_messier:
-            skywatch_enhanced_input = f"{skywatch_enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier]"
+            skywatch_enhanced_input = (
+                f"{skywatch_enhanced_input}\n\n[IMPORTANT: Utilise le document 'Catalogue Messier.pdf' "
+                "pour obtenir les informations sur les objets Messier]"
+            )
         
         # Réinvoque la chaîne avec l'input contenant les données SkyWatch
         print(f"DEBUG - Réinvocation de la chaîne avec input amélioré contenant données SkyWatch")
