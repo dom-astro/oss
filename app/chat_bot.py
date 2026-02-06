@@ -39,6 +39,13 @@ MESSIER_PAGE_CACHE = {
     'refresh_interval': 300  # 5 minutes en secondes
 }
 
+# Cache pour le catalogue Messier (page publique)
+MESSIER_PAGE_CACHE = {
+    'data': None,
+    'timestamp': None,
+    'refresh_interval': 300  # 5 minutes en secondes
+}
+
 def model_and_embedding_function(api_key):
     """
     Initialise le modèle de langage et la fonction d'embedding avec les clés API Mistral.
@@ -791,6 +798,9 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
         if messier_page_content and "Impossible" not in messier_page_content:
             messier_page_doc = create_messier_page_document(messier_page_content)
             print("INFO - Messier page document created")
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     
     # Prépare l'input amélioré avec les indicateurs de mode
@@ -819,6 +829,9 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
             f"\n{messier_page_content}"
         )
         print("INFO - Enhanced input with Messier page top 10")
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     
     # Appelle la chaîne RAG avec l'input amélioré
