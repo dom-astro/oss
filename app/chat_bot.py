@@ -39,20 +39,6 @@ MESSIER_PAGE_CACHE = {
     'refresh_interval': 300  # 5 minutes en secondes
 }
 
-# Cache pour le catalogue Messier (page publique)
-MESSIER_PAGE_CACHE = {
-    'data': None,
-    'timestamp': None,
-    'refresh_interval': 300  # 5 minutes en secondes
-}
-
-# Cache pour le catalogue Messier (page publique)
-MESSIER_PAGE_CACHE = {
-    'data': None,
-    'timestamp': None,
-    'refresh_interval': 300  # 5 minutes en secondes
-}
-
 def model_and_embedding_function(api_key):
     """
     Initialise le modèle de langage et la fonction d'embedding avec les clés API Mistral.
@@ -794,8 +780,7 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     
     # Détecte si la question porte sur les objets Messier
     needs_messier = should_use_messier_catalog(user_input)
-<<<<<<< Updated upstream
-=======
+
     messier_images = []  # Will store loaded image paths
     messier_docs = []
 
@@ -805,13 +790,7 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
         if messier_page_content and "Impossible" not in messier_page_content:
             messier_page_doc = create_messier_page_document(messier_page_content)
             print("INFO - Messier page document created")
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
+
     
     # Prépare l'input amélioré avec les indicateurs de mode
     enhanced_input = user_input
@@ -821,10 +800,10 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     
     # Ajoute une instruction pour rechercher le catalogue Messier si nécessaire
     if needs_messier:
-<<<<<<< Updated upstream
+
         enhanced_input = f"{enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
         print("INFO - Input amélioré pour recherche dans catalogue Messier")
-=======
+
         # Only inject actual Messier context without doubling it
         enhanced_input = (
             f"{enhanced_input}\n\n[IMPORTANT: Utilise le document 'Catalogue Messier.pdf' "
@@ -839,13 +818,6 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
             f"\n{messier_page_content}"
         )
         print("INFO - Enhanced input with Messier page top 10")
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
     
     # Appelle la chaîne RAG avec l'input amélioré
     response = chain.invoke({"input": enhanced_input, "chat_history": chat_history})
