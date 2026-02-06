@@ -32,6 +32,13 @@ SKYWATCH_CACHE = {
     'refresh_interval': 300  # Intervalle de rafraîchissement en secondes (5 minutes)
 }
 
+# Cache pour le catalogue Messier (page publique)
+MESSIER_PAGE_CACHE = {
+    'data': None,
+    'timestamp': None,
+    'refresh_interval': 300  # 5 minutes en secondes
+}
+
 def model_and_embedding_function(api_key):
     """
     Initialise le modèle de langage et la fonction d'embedding avec les clés API Mistral.
@@ -92,6 +99,13 @@ def should_use_messier_catalog(user_input: str) -> bool:
         print(f"INFO - Utilisation du catalogue Messier déclenchée pour: {user_input}")
     
     return should_use
+
+def should_fetch_messier_page(user_input: str) -> bool:
+    """Check if the question is about visible Messier objects tonight."""
+    user_lower = user_input.lower()
+    return should_use_messier_catalog(user_input) and (
+        "visible" in user_lower or "visibles" in user_lower or "ce soir" in user_lower
+    )
 
 def get_messier_context(vector, doc_id: str, max_chunks: int = 110):
     """Retrieve relevant chunks from Catalogue Messier by doc_id (increased significantly for all objects)."""
@@ -183,6 +197,72 @@ def load_messier_images_from_assets(max_images: int = 5) -> list:
         print(f"ERROR - Could not load Messier images: {e}")
     
     return images_data
+
+def fetch_messier_page_top10() -> str:
+    """Fetch the public Messier page and extract the 10 objects displayed in the table."""
+    global MESSIER_PAGE_CACHE
+
+    now = datetime.now()
+    if MESSIER_PAGE_CACHE['data'] is not None and MESSIER_PAGE_CACHE['timestamp'] is not None:
+        if (now - MESSIER_PAGE_CACHE['timestamp']).total_seconds() < MESSIER_PAGE_CACHE['refresh_interval']:
+            return MESSIER_PAGE_CACHE['data']
+
+    url = "http://messier.astronomie-pointedudiable.fr/"
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        table = soup.select_one("#messier-table")
+        if not table:
+            return "Impossible de récupérer le tableau Messier (tableau introuvable)."
+
+        rows = table.select("tbody tr")
+        if not rows:
+            return "Impossible de récupérer les objets Messier (aucune ligne trouvée dans le tableau)."
+
+        objects = []
+        for row in rows[:10]:
+            cells = [cell.get_text(strip=True) for cell in row.find_all("td")]
+            if len(cells) < 7:
+                continue
+            objects.append({
+                "messier": cells[0],
+                "objet": cells[2],
+                "saison": cells[3],
+                "mag": cells[4],
+                "constellation": cells[5],
+                "visible": cells[6]
+            })
+
+        if not objects:
+            return "Impossible de récupérer les objets Messier (lignes incomplètes)."
+
+        lines = [
+            "LISTE DES 10 OBJETS MESSIER AFFICHÉS (source: http://messier.astronomie-pointedudiable.fr/)",
+        ]
+        for idx, obj in enumerate(objects, 1):
+            lines.append(
+                f"{idx}. {obj['messier']} | {obj['objet']} | Saison: {obj['saison']} | Mag: {obj['mag']} | Constellation: {obj['constellation']} | Visible: {obj['visible']}"
+            )
+
+        content = "\n".join(lines)
+        MESSIER_PAGE_CACHE['data'] = content
+        MESSIER_PAGE_CACHE['timestamp'] = now
+        return content
+    except Exception as e:
+        return f"Impossible de récupérer la page Messier: {e}"
+
+def create_messier_page_document(messier_page_content: str):
+    """Create a LangChain Document from Messier page data"""
+    from langchain_core.documents import Document
+    return Document(
+        page_content=messier_page_content,
+        metadata={
+            'source': 'messier.astronomie-pointedudiable.fr',
+            'type': 'messier_page_top10'
+        }
+    )
 
 def find_messier_info(messier_number: int, messier_docs: list) -> str:
     """Find comprehensive info snippet for a given Messier number - search across all chunks."""
@@ -685,6 +765,8 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     # Initialise les variables pour les données SkyWatch
     skywatch_doc = None
     skywatch_content = None
+    messier_page_doc = None
+    messier_page_content = None
     
     # Récupère les données SkyWatch si la question porte sur la météo/programme
     if should_fetch_skywatch(user_input):
@@ -698,6 +780,18 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     
     # Détecte si la question porte sur les objets Messier
     needs_messier = should_use_messier_catalog(user_input)
+<<<<<<< Updated upstream
+=======
+    messier_images = []  # Will store loaded image paths
+    messier_docs = []
+
+    if should_fetch_messier_page(user_input):
+        messier_page_content = fetch_messier_page_top10()
+        print(f"DEBUG - Messier page data fetched: {messier_page_content[:300]}...")
+        if messier_page_content and "Impossible" not in messier_page_content:
+            messier_page_doc = create_messier_page_document(messier_page_content)
+            print("INFO - Messier page document created")
+>>>>>>> Stashed changes
     
     # Prépare l'input amélioré avec les indicateurs de mode
     enhanced_input = user_input
@@ -707,8 +801,25 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     
     # Ajoute une instruction pour rechercher le catalogue Messier si nécessaire
     if needs_messier:
+<<<<<<< Updated upstream
         enhanced_input = f"{enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
         print("INFO - Input amélioré pour recherche dans catalogue Messier")
+=======
+        # Only inject actual Messier context without doubling it
+        enhanced_input = (
+            f"{enhanced_input}\n\n[IMPORTANT: Utilise le document 'Catalogue Messier.pdf' "
+            "pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
+        )
+        print("INFO - Enhanced input to search Messier catalog")
+
+    if messier_page_content and "Impossible" not in messier_page_content:
+        enhanced_input = (
+            f"{enhanced_input}\n\n[IMPORTANT: Utilise les 10 objets du tableau Messier ci-dessous "
+            "(scrapés depuis la page publique) pour répondre]"\
+            f"\n{messier_page_content}"
+        )
+        print("INFO - Enhanced input with Messier page top 10")
+>>>>>>> Stashed changes
     
     # Appelle la chaîne RAG avec l'input amélioré
     response = chain.invoke({"input": enhanced_input, "chat_history": chat_history})
@@ -734,6 +845,13 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
                 f"{skywatch_enhanced_input}\n\n[IMPORTANT: Utilise le document 'Catalogue Messier.pdf' "
                 "pour obtenir les informations sur les objets Messier]"
             )
+
+        if messier_page_content and "Impossible" not in messier_page_content:
+            skywatch_enhanced_input = (
+                f"{skywatch_enhanced_input}\n\n[IMPORTANT: Utilise les 10 objets du tableau Messier ci-dessous "
+                "(scrapés depuis la page publique) pour répondre]"\
+                f"\n{messier_page_content}"
+            )
         
         # Réinvoque la chaîne avec l'input contenant les données SkyWatch
         print(f"DEBUG - Réinvocation de la chaîne avec input amélioré contenant données SkyWatch")
@@ -742,6 +860,9 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
         documents = response.get('context', [])
         # Ajoute le document SkyWatch au début
         documents.insert(0, skywatch_doc)
+
+    if messier_page_doc:
+        documents.insert(0, messier_page_doc)
     
     # Charge l'index des documents pour récupérer les noms de fichier propres
     doc_index_path = Path(__file__).resolve().parent.parent / "document_index.json"

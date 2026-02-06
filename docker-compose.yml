@@ -7,15 +7,7 @@ services:
     stdin_open: true
     tty: true
 
-  jupyter:
-    build: .
-    command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
-    volumes:
-      - .:/workspace
-    working_dir: /workspace
-    ports:
-      - "8888:8888"
-
+    
   streamlit:
     build: .
     command: streamlit run app/interface.py --browser.gatherUsageStats false --server.port 8501

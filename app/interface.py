@@ -664,6 +664,39 @@ elif st.session_state.get('authentication_status'):
         # 4) Réponse finale : remplace le placeholder par le contenu réel
         with assistant_slot.chat_message("assistant"):
             st.write(response)
+
+            # Display Messier page top 10 if available
+            messier_page_data = None
+            if documents:
+                for doc in documents:
+                    if hasattr(doc, 'metadata'):
+                        if doc.metadata.get('source') == 'messier.astronomie-pointedudiable.fr' and doc.metadata.get('type') == 'messier_page_top10':
+                            messier_page_data = doc.page_content if hasattr(doc, 'page_content') else str(doc)
+                            break
+
+            if messier_page_data and "LISTE DES 10 OBJETS" in messier_page_data:
+                st.markdown("---")
+                st.subheader("🗂️ Objets Messier (page publique)")
+                rows = []
+                for line in messier_page_data.splitlines():
+                    if line.strip().startswith(tuple(str(i) + "." for i in range(1, 11))):
+                        parts = [p.strip() for p in line.split("|")]
+                        if len(parts) >= 6:
+                            idx_and_m = parts[0].split(".", 1)
+                            messier_label = idx_and_m[1].strip() if len(idx_and_m) > 1 else parts[0].strip()
+                            rows.append({
+                                "Messier": messier_label,
+                                "Objet": parts[1],
+                                "Saison": parts[2].replace("Saison:", "").strip(),
+                                "Magnitude": parts[3].replace("Mag:", "").strip(),
+                                "Constellation": parts[4].replace("Constellation:", "").strip(),
+                                "Visible": parts[5].replace("Visible:", "").strip()
+                            })
+
+                if rows:
+                    st.table(rows)
+                else:
+                    st.info("Aucun objet Messier n'a été extrait de la page publique.")
             
             # Display Messier images if available
             if messier_images:
@@ -685,8 +718,8 @@ elif st.session_state.get('authentication_status'):
                                 st.markdown("*Aucune information trouvée dans Catalogue Messier.pdf pour cet objet.*")
                         
                         with col_img:
-                            st.image(img_data['image_path'], width=64)
-                            st.caption(img_data['source'])
+                            # Display image at original file size (no resizing)
+                            st.image(img_data['image_path'], caption=img_data['source'])
                         
                         st.markdown("---")
                     except Exception as e:
