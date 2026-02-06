@@ -53,6 +53,13 @@ MESSIER_PAGE_CACHE = {
     'refresh_interval': 300  # 5 minutes en secondes
 }
 
+# Cache pour le catalogue Messier (page publique)
+MESSIER_PAGE_CACHE = {
+    'data': None,
+    'timestamp': None,
+    'refresh_interval': 300  # 5 minutes en secondes
+}
+
 def model_and_embedding_function(api_key):
     """
     Initialise le modèle de langage et la fonction d'embedding avec les clés API Mistral.
@@ -807,6 +814,9 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
             print("INFO - Messier page document created")
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -841,6 +851,9 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
         print("INFO - Enhanced input with Messier page top 10")
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
