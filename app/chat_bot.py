@@ -3,6 +3,7 @@
 # ==============================================================================
 
 # LangChain - Framework pour construire des applications basées sur les LLM
+import re
 from langchain_mistralai.embeddings import MistralAIEmbeddings  # Modèle d'embeddings Mistral
 from langchain_mistralai.chat_models import ChatMistralAI  # Modèle de chat Mistral
 from langchain.chains.combine_documents import create_stuff_documents_chain  # Chaîne de combinaison de documents
