@@ -830,6 +830,9 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
         )
         print("INFO - Enhanced input with Messier page top 10")
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
