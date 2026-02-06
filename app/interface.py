@@ -1,66 +1,111 @@
-import streamlit as st, yaml, streamlit_authenticator as stauth
-from yaml import SafeLoader
+# ==============================================================================
+# IMPORTS - Dépendances pour l'interface Streamlit du chatbot
+# ==============================================================================
+
+# Framework Streamlit pour construire l'interface web
+import streamlit as st  # Framework principal
+import yaml  # Manipulation des fichiers de configuration YAML
+import streamlit_authenticator as stauth  # Authentification des utilisateurs
+from yaml import SafeLoader  # Chargement sécurisé des fichiers YAML
+
+# Imports du module chatbot (RAG, modèles, chaînes)
 from chat_bot import load_vector_store, get_response, build_chains, model_and_embedding_function, create_prompt, create_contextualize_q_system_prompt
-from Embedder import Embedder
-from TextEmbedder import TextEmbedder
-from EmbedderWithOcr import EmbedderWithOcr
-from MultimodalEmbedder import MultimodalEmbedder
-from langchain_core.messages import HumanMessage, AIMessage
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.text import MIMEText
-import os
-import json
-from datetime import datetime
-from dotenv import load_dotenv
-from pathlib import Path
+
+# Embedders - Différentes méthodes d'intégration de documents
+from Embedder import Embedder  # Embedder par défaut
+from TextEmbedder import TextEmbedder  # Embedder texte uniquement
+from EmbedderWithOcr import EmbedderWithOcr  # Embedder avec OCR pour images
+from MultimodalEmbedder import MultimodalEmbedder  # Embedder multimodal
+
+# LangChain - Messages du chat
+from langchain_core.messages import HumanMessage, AIMessage  # Types de messages
+
+# Email - Envoi de messages email
+import smtplib  # Protocole SMTP pour envoi d'emails
+from email.mime.text import MIMEText  # Format texte pour emails
+
+# Utilitaires Python
+import os  # Gestion des fichiers/répertoires
+import json  # Manipulation de JSON
+from datetime import datetime  # Gestion des dates/heures
+from dotenv import load_dotenv  # Chargement des variables d'environnement
+from pathlib import Path  # Gestion des chemins fichiers
+
+# PyTorch - Configuration (fix pour éviter les warnings)
 import torch, types
 torch.classes.__path__ = types.SimpleNamespace(_path=[])
 
 
-# Page configuration
+# ==============================================================================
+# CONFIGURATION DE LA PAGE STREAMLIT
+# ==============================================================================
+
+# Configuration de la page (titre, icône, disposition)
 st.set_page_config(
-    page_title="Chatbot Observatoire Astronomique", 
-    page_icon=":astronaut:", 
-    layout="wide",
+    page_title="Chatbot Observatoire Astronomique",  # Titre du navigateur
+    page_icon=":astronaut:",  # Icône du navigateur
+    layout="wide",  # Disposition large (sidebar + contenu)
     menu_items={
         'About': "Observatoire Astronomique - IMT Atlantique, campus de Brest"
     }
 )
 
+# Charger les variables d'environnement depuis le fichier .env
 load_dotenv(override=True)
 
+# ==============================================================================
+# FONCTIONS UTILITAIRES
+# ==============================================================================
 
 def send_email(receiver_email, subject, body):
+    """
+    Envoie un email via SMTP (Gmail).
+    
+    Utilisée pour les notifications d'oubli de mot de passe ou d'identifiant.
+    
+    Args:
+        receiver_email (str): Adresse email du destinataire
+        subject (str): Sujet de l'email
+        body (str): Corps du message
+    """
+    # Configuration du serveur SMTP Gmail
     smtp_host = "smtp.gmail.com"
-    smtp_port = 587
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_pass = os.getenv("SMTP_PASSWORD")
+    smtp_port = 587  # Port SMTP TLS
+    smtp_user = os.getenv("SMTP_USER")  # Email expéditeur
+    smtp_pass = os.getenv("SMTP_PASSWORD")  # Mot de passe applicatif Gmail
+    
+    # Connexion au serveur SMTP
     server = smtplib.SMTP(smtp_host, smtp_port)
-
     server.connect(smtp_host, smtp_port)
-    server.starttls()
-    server.login(smtp_user, smtp_pass)
+    server.starttls()  # Activer la sécurité TLS
+    server.login(smtp_user, smtp_pass)  # Authentification
 
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = smtp_user
-    msg["To"] = receiver_email
+    # Création du message email
+    msg = MIMEText(body)  # Corps du message en texte
+    msg["Subject"] = subject  # Sujet
+    msg["From"] = smtp_user  # Expéditeur
+    msg["To"] = receiver_email  # Destinataire
 
+    # Envoi du message et fermeture de la connexion
     server.send_message(msg)
     server.quit()
 
 
+# ==============================================================================
+# AUTHENTIFICATION DES UTILISATEURS
+# ==============================================================================
 
-# Load environment variables
+# Charger la clé API Mistral depuis les variables d'environnement
 api_key = os.getenv("MISTRAL_API_KEY")
 
+# Chemin vers le fichier de configuration utilisateurs
 config_path = Path(__file__).resolve().parent.parent / "config.yaml"
 
-# --- load config dynamically so new users persist -------------
+# Initialise l'authenticateur Streamlit avec le fichier config
+# Permet de gérer les inscriptions, connexions et mots de passe
 authenticator = stauth.Authenticate(str(config_path))
 # ------------- Register new user panel ------------------------
-
+# Panneau de gestion des utilisateurs dans la barre latérale
 with st.sidebar:
     st.subheader("Gestion des utilisateurs")
     with st.expander("Options de gestion de compte", expanded=True):
@@ -170,47 +215,61 @@ if st.session_state.get('authentication_status') is False:
     st.sidebar.error('Nom d\'utilisateur ou mot de passe incorrect. Veuillez réessayer.')
 elif st.session_state.get('authentication_status') is None:
     st.sidebar.warning('Merci de vous connecter pour accéder à l\'application.')
-# --- Main application logic ---
+# ==============================================================================
+# LOGIQUE PRINCIPALE DE L'APPLICATION
+# ==============================================================================
+# Cette section s'exécute uniquement si l'utilisateur est authentifié
 elif st.session_state.get('authentication_status'):
     if api_key is None:
         raise st.error("MISTRAL_API_KEY n'est pas défini dans les variables d'environnement")
 
-    # Directory paths
-    DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
-    INDEX_DIR = Path(__file__).resolve().parent.parent / "faiss_index"
-    HISTORY_DIR = Path(__file__).resolve().parent.parent / "chat_histories"
+    # ==============================================================================
+    # RÉPERTOIRES DE TRAVAIL
+    # ==============================================================================
+    # Définit les chemins pour les documents, index vectoriel et historiques
+    DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"  # Documents PDF
+    INDEX_DIR = Path(__file__).resolve().parent.parent / "faiss_index"  # Index FAISS
+    HISTORY_DIR = Path(__file__).resolve().parent.parent / "chat_histories"  # Historiques
 
-    # Create directories if they don't exist
+    # Crée les répertoires s'ils n'existent pas
     os.makedirs(DOCS_DIR, exist_ok=True)
     os.makedirs(INDEX_DIR, exist_ok=True)
     os.makedirs(HISTORY_DIR, exist_ok=True)
 
-    # --- User input at the beginning of the session ---
-   
+    # ==============================================================================
+    # INFORMATIONS DE L'UTILISATEUR CONNECTÉ
+    # ==============================================================================
+    # Récupère le nom et les rôles de l'utilisateur depuis la session Streamlit
     user_name = st.session_state.get("name")
     user_roles = st.session_state.get("roles")
   
 
     # --- Loading user history ---
+    # Prépare le répertoire d'historique pour cet utilisateur
+    # Remplace les espaces par des underscores dans le nom pour créer un dossier
     file_safe_name = user_name.lower().replace(' ', '_')
     user_history_path = HISTORY_DIR / file_safe_name
     os.makedirs(user_history_path, exist_ok=True)
 
-    # Initialize model and vector store
+    # ==============================================================================
+    # INITIALISATION DU MODÈLE ET DE LA BASE VECTORIELLE
+    # ==============================================================================
+    # Initialise le modèle de langage et la base vectorielle FAISS
     model, embedding_function = model_and_embedding_function(api_key)
     contextualize_q_prompt = create_contextualize_q_system_prompt()
     
-    # Initialize reasoning mode state if not exists
+    # Initialise le mode raisonnement s'il n'existe pas en session
     if "reasoning_mode" not in st.session_state:
         st.session_state.reasoning_mode = False
     
-    # Create prompt based on reasoning mode (dynamically updated)
+    # Crée le prompt en fonction du mode raisonnement (mis à jour dynamiquement)
     prompt = create_prompt(reasoning_mode=st.session_state.get("reasoning_mode", False))
 
+    # Charge la base vectorielle FAISS (ou None si elle n'existe pas)
     if "vector" not in st.session_state:
         st.session_state.vector = load_vector_store(INDEX_DIR, embedding_function)
     
-    # Rebuild chain if reasoning mode changed or chain doesn't exist
+    # Reconstruit la chaîne RAG si le mode raisonnement change ou si la chaîne n'existe pas
     rebuild_chain = False
     if "chain" not in st.session_state:
         rebuild_chain = True
@@ -218,6 +277,7 @@ elif st.session_state.get('authentication_status'):
         if st.session_state.last_reasoning_mode != st.session_state.reasoning_mode:
             rebuild_chain = True
     
+    # Reconstruit la chaîne si nécessaire
     if rebuild_chain:
         if st.session_state.vector is None:
             st.session_state.chain = None
@@ -228,10 +288,13 @@ elif st.session_state.get('authentication_status'):
                 prompt=prompt,
                 contextualize_q_prompt=contextualize_q_prompt,
             )
-            # Remember the reasoning mode for which this chain was built
+            # Mémorise le mode de raisonnement pour lequel cette chaîne a été construite
             st.session_state.last_reasoning_mode = st.session_state.reasoning_mode
 
-    # Initialize session state
+    # ==============================================================================
+    # INITIALISATION DE L'ÉTAT DE SESSION
+    # ==============================================================================
+    # Variables persistantes à travers les reruns de Streamlit
     if "available_documents" not in st.session_state:
         st.session_state.available_documents = []
     if "messages" not in st.session_state:
@@ -239,47 +302,68 @@ elif st.session_state.get('authentication_status'):
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = []
     if "history_path" not in st.session_state:
+        # Crée un nouveau fichier d'historique avec timestamp
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         st.session_state.history_path = user_history_path / f"{ts}.json"
 
-    # Function to refresh available documents
+    # ==============================================================================
+    # FONCTIONS AUXILIAIRES
+    # ==============================================================================
+    
     def refresh_document_list():
+        """
+        Met à jour la liste des documents PDF disponibles dans le répertoire docs/.
+        
+        Parcourt le répertoire et extrait tous les fichiers .pdf/.PDF.
+        """
         if DOCS_DIR.exists():
+            # Récupère tous les fichiers PDF du répertoire docs
             st.session_state.available_documents = [f for f in os.listdir(DOCS_DIR) if f.endswith(('.pdf', '.PDF'))]
         else:
             st.session_state.available_documents = []
 
-    # Function to save chat history
     def save_chat_history():
+        """
+        Sauvegarde l'historique de la conversation en JSON.
+        
+        Enregistre à la fois les messages affichés et l'historique RAG (HumanMessage/AIMessage).
+        Chemin: chat_histories/{username}/{timestamp}.json
+        
+        Returns:
+            bool: True si sauvegarde réussie, False sinon
+        """
         try:
+            # Prépare les données à sauvegarder
             history_data = {
-                "messages": st.session_state.messages,
-                "chat_history": [
+                "messages": st.session_state.messages,  # Messages affichés à l'interface
+                "chat_history": [  # Historique pour le RAG
                     {"type": "human", "content": msg.content} if isinstance(msg, HumanMessage)
                     else {"type": "ai", "content": msg.content}
                     for msg in st.session_state.chat_history
                 ]
             }
             
-            # Convert Path to string to ensure serializability
+            # Convertit le Path en string pour la sérialisation JSON
             history_path_str = str(st.session_state.history_path)
             
-            # Create parent directories if they don't exist
+            # Crée les répertoires parents s'ils n'existent pas
             os.makedirs(os.path.dirname(history_path_str), exist_ok=True)
             
-            # Save with proper encoding
+            # Sauvegarde avec encodage UTF-8
             with open(history_path_str, "w", encoding="utf-8") as f:
                 json.dump(history_data, f, ensure_ascii=False, indent=2)
                 
             return True
         except Exception as e:
-            st.error(f"Error saving chat history: {e}")
+            st.error(f"Erreur lors de la sauvegarde: {e}")
             return False
 
     # Initialize document list
     refresh_document_list()
 
-    # --- Introduction ---
+    # ==============================================================================
+    # INTERFACE DE PRÉSENTATION ET DE BIENVENUE
+    # ==============================================================================
     st.markdown(f"""
     Salut **{user_name}** ! 👋  
     Je suis ton assistant virtuel pour l'observatoire astronomique. 😊  
@@ -300,11 +384,15 @@ elif st.session_state.get('authentication_status'):
     st.title("Bienvenue dans l'Observatoire Astronomique De la pointe du Diable 🚀")
 
     with st.sidebar:
+        # ==============================================================================
+        # OPTIONS DE PARAMÉTRAGE
+        # ==============================================================================
         # Mode raisonnement toggle
         st.subheader("⚙️ Options")
         if "reasoning_mode" not in st.session_state:
             st.session_state.reasoning_mode = False
         
+        # Bascule pour activer/désactiver le mode raisonnement détaillé
         reasoning_toggle = st.toggle(
             "🧠 Mode raisonnement détaillé",
             value=st.session_state.reasoning_mode,
@@ -320,7 +408,9 @@ elif st.session_state.get('authentication_status'):
         
         st.divider()
         
-        st.subheader("Historique de la discussion")
+        # ==============================================================================
+        # GESTION DE L'HISTORIQUE DE DISCUSSION
+        # ==============================================================================
         with st.expander("Historique de la discussion", expanded=False):
             if "admin" in user_roles:
                 # List all user directories
@@ -372,6 +462,9 @@ elif st.session_state.get('authentication_status'):
                 st.success("Nouvelle conversation créée!")
                 st.rerun()
 
+        # ==============================================================================
+        # GESTION DES DOCUMENTS
+        # ==============================================================================
         st.subheader("Gérer vos documents")
         # Document upload section
         with st.expander("Télécharger un document", expanded=False):
@@ -385,7 +478,8 @@ elif st.session_state.get('authentication_status'):
                     placeholder="— choisir un embedder —"
                 )
                 
-                embedder = Embedder(api_key)  # Default
+                # Sélectionne l'embedder approprié selon le choix de l'utilisateur
+                embedder = Embedder(api_key)  # Embedder par défaut
                 if selected_embedder == "Text only embedder":
                     embedder = TextEmbedder(api_key)
                 elif selected_embedder == "Embedder with OCR":
@@ -397,15 +491,16 @@ elif st.session_state.get('authentication_status'):
                     add_permanently = st.checkbox("Ajouter le document de manière permanente")
                 if st.button("Traiter", key="process_button"):
                     try:
-                        # Build destination path
+                        # Construit le chemin de destination et sauvegarde le fichier
                         save_path = os.path.join(DOCS_DIR, pdf.name)
                         with open(save_path, "wb") as f:
                             f.write(pdf.read())
                         if "admin" in user_roles:
                             st.success(f"Fichier enregistré dans : {save_path}")
                         with st.spinner("Indexation du document…"):
-                            # Process the document
+                            # Traite le document et met à jour l'index vectoriel
                             st.session_state.vector = embedder.embed(save_path, st.session_state.vector, save=add_permanently)
+                            # Reconstruit la chaîne avec le nouvel index
                             st.session_state.chain = build_chains(
                                 vector=st.session_state.vector,
                                 model=model,
@@ -435,12 +530,14 @@ elif st.session_state.get('authentication_status'):
                     try:
                         with st.spinner("Suppression en cours..."):
                             file_path = os.path.join(DOCS_DIR, selected_doc)
+                            # Supprime le document de l'index vectoriel
                             delection_state = Embedder(api_key).delete_document(selected_doc, st.session_state.vector, save=delete_permanently)
                             if delection_state is False:
                                 st.error(f"Le document '{selected_doc}' n'existe pas ou n'a pas pu être supprimé.")
                             else:
                                 if delete_permanently:
                                     os.remove(file_path)
+                                # Reconstruit la chaîne avec l'index mis à jour
                                 st.session_state.chain = build_chains(
                                     vector=st.session_state.vector,
                                     model=model,
@@ -465,15 +562,19 @@ elif st.session_state.get('authentication_status'):
             st.markdown("---")
 
 
-    # Display chat history
+    # ==============================================================================
+    # AFFICHAGE DE L'HISTORIQUE DE CHAT
+    # ==============================================================================
     st.header("Conversation")
 
+    # Affiche les messages précédents de la conversation
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            # Affiche les documents utilisés pour cette réponse
             if message.get("role") == "assistant" and message.get("sources"):
                 with st.expander("📚 Documents utilisés"):
-                    # Dictionary to avoid duplicates
+                    # Dictionnaire pour éviter les doublons
                     unique_sources = {}
                     for item in message["sources"]:
                         source = item.get("source") or "Unknown"
@@ -482,7 +583,7 @@ elif st.session_state.get('authentication_status'):
                             unique_sources[source] = content
 
                     for i, (source, content) in enumerate(unique_sources.items(), 1):
-                        # Extract just the filename from the path
+                        # Extrait juste le nom de fichier du chemin
                         if source != 'Unknown':
                             filename = source.split('\\')[-1].split('/')[-1]
                         else:
@@ -490,18 +591,21 @@ elif st.session_state.get('authentication_status'):
                         st.write(f"**{i}. {filename}**")
                         st.write(f"```\n{content}\n```")
 
-    # Boutons de questions suggérées
+    # ==============================================================================
+    # QUESTIONS SUGGÉRÉES
+    # ==============================================================================
     st.markdown("**💡 Questions suggérées :**")
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4 = st.columns(4)
     
+    # Liste des questions suggestions pré-définies
     suggested_questions = [
         "Quel est le programme ce soir?",
         "Quelle est la météo actuelle?",
         "Comment utiliser le télescope?",
-        "Quels objets peut-on observer?",
-        "Quels sont les objets de Messier visible ce soir?"
+        "Quels objets peut-on observer?"
     ]
     
+    # Variable pour tracker si une question suggérée est cliquée
     question_clicked = None
     with col1:
         if st.button(suggested_questions[0], key="q1", use_container_width=True):
@@ -515,68 +619,70 @@ elif st.session_state.get('authentication_status'):
     with col4:
         if st.button(suggested_questions[3], key="q4", use_container_width=True):
             question_clicked = suggested_questions[3]
-    with col5:
-        if st.button(suggested_questions[4], key="q5", use_container_width=True):
-            question_clicked = suggested_questions[4]
 
-    # Chatbot - Text input interface
+    # ==============================================================================
+    # INTERFACE DE CHAT
+    # ==============================================================================
+    # Entrée texte pour les questions de l'utilisateur
     user_input = st.chat_input("Posez votre question ici...")
 
     # Si un bouton de question suggérée est cliqué, utiliser cette question
     if question_clicked:
         user_input = question_clicked
 
+    # Traite la question si l'utilisateur a saisi du texte
     if user_input:
-        # 1) Display/store user message
+        # 1) Affiche et enregistre le message utilisateur
         with st.chat_message("user"):
             st.write(user_input)
         st.session_state.messages.append({"role": "user", "content": user_input})
 
-        # 2) Create ONE placeholder for assistant response
+        # 2) Crée un placeholder unique pour la réponse de l'assistant
         assistant_slot = st.empty()
 
-        # 3) Generation loop
+        # 3) Boucle de génération (avec gestion d'erreurs)
         while True:
             nb_tentatives = 0
             try:
                 with st.spinner("Réflexion en cours..."):
-                    # Utiliser le mode raisonnement si activé
+                    # Utilise le mode raisonnement si activé
                     reasoning_mode = st.session_state.get("reasoning_mode", False)
                     response, documents = get_response(
                         user_input, 
                         st.session_state["chat_history"], 
                         st.session_state.vector, 
                         st.session_state.chain,
-                        reasoning_mode=reasoning_mode
+                        reasoning_mode=reasoning_mode  # Passe le mode raisonnement
                     )
-                break  # Exit if all goes well
+                break  # Sort de la boucle si tout fonctionne
             except Exception as e:
                 nb_tentatives += 1
-                # Rewrite in the same container → old text is replaced
+                # Réécrit dans le même conteneur → l'ancien texte est remplacé
                 with assistant_slot.chat_message("assistant"):
                     st.write(f"Une erreur est survenue : {e}. Nouvelle tentative…(Tentative numéro : {nb_tentatives})")
 
-        # 4) Final response: overwrite placeholder with real content
+        # 4) Réponse finale : remplace le placeholder par le contenu réel
         with assistant_slot.chat_message("assistant"):
             st.write(response)
-            # Display source documents
+            # Affiche les documents sources utilisés
             sources_payload = []
             if documents:
                 with st.expander("📚 Documents utilisés"):
-                    # Dictionary to avoid duplicates
+                    # Dictionnaire pour éviter les doublons
                     unique_sources = {}
                     for doc in documents:
-                        # Try different ways to get the source
+                        # Essaie différentes façons de récupérer la source
                         source = None
                         if hasattr(doc, 'metadata'):
                             source = doc.metadata.get('source')
                             if not source:
-                                # Try other possible keys
+                                # Essaie d'autres clés possibles
                                 source = doc.metadata.get('file') or doc.metadata.get('filename') or doc.metadata.get('path')
                         
                         if not source:
                             source = 'Unknown'
                         
+                        # Extrait le contenu du document
                         content = doc.page_content if hasattr(doc, 'page_content') else str(doc)
                         sources_payload.append({"source": source, "content": content})
                         
@@ -584,7 +690,7 @@ elif st.session_state.get('authentication_status'):
                             unique_sources[source] = content
                     
                     for i, (source, content) in enumerate(unique_sources.items(), 1):
-                        # Extract just the filename from the path
+                        # Extrait juste le nom de fichier du chemin
                         if source != 'Unknown':
                             filename = source.split('\\')[-1].split('/')[-1]
                         else:
@@ -592,12 +698,13 @@ elif st.session_state.get('authentication_status'):
                         st.write(f"**{i}. {filename}**")
                         st.write(f"```\n{content}\n```")
 
-        # 5) History for RAG and for the page
+        # 5) Historique pour le RAG et pour la page
+        # Ajoute le message et la réponse à l'historique interne
         st.session_state["chat_history"].extend(
             [HumanMessage(content=user_input), AIMessage(content=response)]
         )
         st.session_state.messages.append({"role": "assistant", "content": response, "sources": sources_payload})
 
-        # Save chat history after each exchange
+        # Sauvegarde l'historique après chaque échange
         save_chat_history()
 

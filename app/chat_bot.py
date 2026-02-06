@@ -1,116 +1,164 @@
-from langchain_mistralai.embeddings import MistralAIEmbeddings
-from langchain_mistralai.chat_models import ChatMistralAI
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate
-from langchain.chains import create_retrieval_chain
-from langchain_community.vectorstores import FAISS
-from langchain_core.prompts import MessagesPlaceholder
-from langchain_core.messages import HumanMessage ,AIMessage
-from langchain.chains.history_aware_retriever import create_history_aware_retriever
-from dotenv import load_dotenv
-from pathlib import Path
-import os
-import json
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+# ==============================================================================
+# IMPORTS - Dépendances pour le chatbot astronomique avec RAG (Retrieval-Augmented Generation)
+# ==============================================================================
 
-# Cache pour les données SkyWatch
+# LangChain - Framework pour construire des applications basées sur les LLM
+from langchain_mistralai.embeddings import MistralAIEmbeddings  # Modèle d'embeddings Mistral
+from langchain_mistralai.chat_models import ChatMistralAI  # Modèle de chat Mistral
+from langchain.chains.combine_documents import create_stuff_documents_chain  # Chaîne de combinaison de documents
+from langchain_core.prompts import ChatPromptTemplate  # Template pour les prompts de chat
+from langchain.chains import create_retrieval_chain  # Chaîne de récupération augmentée
+from langchain_community.vectorstores import FAISS  # Base de données vectorielle FAISS
+from langchain_core.prompts import MessagesPlaceholder  # Placeholder pour l'historique du chat
+from langchain_core.messages import HumanMessage ,AIMessage  # Messages du chat
+from langchain.chains.history_aware_retriever import create_history_aware_retriever  # Retriever conscient de l'historique
+
+# Utilitaires Python
+from dotenv import load_dotenv  # Charger les variables d'environnement
+from pathlib import Path  # Gestion des chemins fichiers
+import os  # Accès aux variables d'environnement
+import json  # Manipulation de JSON
+import requests  # Requêtes HTTP
+from bs4 import BeautifulSoup  # Web scraping
+from datetime import datetime, timedelta  # Gestion des dates/heures
+
+# ==============================================================================
+# CACHE GLOBAL - Stockage des données météo/programme du site SkyWatch
+# ==============================================================================
+# Ce cache évite de récupérer les données trop fréquemment du site SkyWatch
 SKYWATCH_CACHE = {
-    'data': None,
-    'timestamp': None,
-    'refresh_interval': 300  # 5 minutes en secondes
+    'data': None,  # Contient les données météo et astronomiques brutes
+    'timestamp': None,  # Timestamp de la dernière récupération
+    'refresh_interval': 300  # Intervalle de rafraîchissement en secondes (5 minutes)
 }
 
 def model_and_embedding_function(api_key):
-    # Create embedding function using Mistral AI's embedding model
+    """
+    Initialise le modèle de langage et la fonction d'embedding avec les clés API Mistral.
+    
+    Args:
+        api_key (str): Clé API Mistral pour l'authentification
+        
+    Returns:
+        tuple: (model ChatMistral, fonction d'embeddings)
+    """
+    # Crée la fonction d'embedding pour transformer le texte en vecteurs
     embedding_function = MistralAIEmbeddings(model="mistral-embed", mistral_api_key=api_key)
 
-    # Initialize the language model with Mistral AI
+    # Initialise le modèle de chat LLM Mistral pour générer les réponses
     model = ChatMistralAI(mistral_api_key=api_key, model="mistral-large-latest")
     return model, embedding_function
 
 def should_fetch_skywatch(user_input: str) -> bool:
-    """Check if the question is about weather or tonight's program"""
+    """
+    Détermine si une question porte sur la météo ou le programme d'observation.
+    
+    Args:
+        user_input (str): Le texte de la question de l'utilisateur
+        
+    Returns:
+        bool: True si la question concerne la météo/conditions du ciel/programme
+    """
+    # Mots-clés qui indiquent une question sur la météo ou le programme
     keywords = ['météo', 'meteo', 'temps', 'soir', 'programme', 'ce soir', 'pluie', 'nuages', 'ciel', 'conditions', 'beau', 'observation', 'sky', 'weather', 'sky watch', 'skywatch', 'nuit', 'seeing', 'transparence', 'couverture', 'couverture nuageuse', 'observer', 'visible', 'visibilité']
     user_lower = user_input.lower()
     
-    # Check if any keyword is in the input
+    # Vérifie si au moins un mot-clé est présent dans la question
     should_fetch = any(keyword in user_lower for keyword in keywords)
     
     if should_fetch:
-        print(f"INFO - SkyWatch fetch triggered for: {user_input}")
+        print(f"INFO - Récupération SkyWatch déclenchée pour: {user_input}")
     
     return should_fetch
 
 def should_use_messier_catalog(user_input: str) -> bool:
-    """Check if the question is about Messier objects"""
+    """
+    Détermine si la question porte sur le catalogue Messier d'objets astronomiques.
+    
+    Args:
+        user_input (str): Le texte de la question de l'utilisateur
+        
+    Returns:
+        bool: True si la question concerne les objets Messier
+    """
+    # Mots-clés qui indiquent une question sur les objets Messier
     keywords = ['messier', 'catalogue messier', 'objets messier', 'objets de messier', 'objet messier', 'objet de messier', ' m31', ' m42', ' m45', ' m13', ' m1 ', 'objets m ']
     user_lower = user_input.lower()
     
-    # Check if any keyword is in the input
+    # Vérifie si au moins un mot-clé Messier est présent
     should_use = any(keyword in user_lower for keyword in keywords)
     
     if should_use:
-        print(f"INFO - Messier catalog usage triggered for: {user_input}")
+        print(f"INFO - Utilisation du catalogue Messier déclenchée pour: {user_input}")
     
     return should_use
 
 def fetch_skywatch_data() -> str:
-    """Fetch weather and program data from skywatch website with 5-minute cache"""
+    """
+    Récupère les données météo et astronomiques du site SkyWatch avec système de cache.
+    
+    Le cache a une durée de vie de 5 minutes pour éviter les requêtes inutiles au site.
+    En cas d'erreur de connexion, utilise le cache ancien s'il existe.
+    
+    Returns:
+        str: Les données météo et astronomiques formatées
+    """
     global SKYWATCH_CACHE
     
-    # Vérifier si les données en cache sont encore valides
+    # Vérifier si les données en cache sont encore valides (moins de 5 minutes)
     now = datetime.now()
     if SKYWATCH_CACHE['data'] is not None and SKYWATCH_CACHE['timestamp'] is not None:
         age = (now - SKYWATCH_CACHE['timestamp']).total_seconds()
         if age < SKYWATCH_CACHE['refresh_interval']:
-            print(f"INFO - Using cached SkyWatch data (age: {int(age)}s)")
+            print(f"INFO - Utilisation des données SkyWatch en cache (âge: {int(age)}s)")
             return SKYWATCH_CACHE['data']
         else:
-            print(f"INFO - Cache expired (age: {int(age)}s), refreshing...")
+            print(f"INFO - Cache expiré (âge: {int(age)}s), rafraîchissement...")
     
     try:
-        # The main URL redirects to this one
+        # URLs du site SkyWatch (avec redirection possible)
         urls = [
             "http://nas-gdl2.synology.me/skywatch/",
             "http://skywatch.astronomie-pointedudiable.fr/"
         ]
         
+        # Headers HTTP pour se présenter comme un navigateur
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
+        # Essayer de se connecter à chaque URL
         response = None
         for url in urls:
             try:
                 response = requests.get(url, timeout=10, headers=headers, allow_redirects=True)
-                print(f"DEBUG - Connected to {url}, status: {response.status_code}")
+                print(f"DEBUG - Connexion à {url}, statut: {response.status_code}")
                 if response.status_code == 200:
                     break
             except Exception as e:
-                print(f"DEBUG - Failed for {url}: {e}")
+                print(f"DEBUG - Échec pour {url}: {e}")
                 continue
         
         if not response:
-            # Si échec, retourner les données en cache si disponibles
+            # Si la connexion échoue, utiliser le cache ancien s'il existe
             if SKYWATCH_CACHE['data']:
-                print("WARNING - Connection failed, using old cache")
+                print("ATTENTION - Connexion échouée, utilisation du cache ancien")
                 return SKYWATCH_CACHE['data']
             return "Impossible de se connecter au site SkyWatch"
         
+        # Parse le contenu HTML du site avec BeautifulSoup
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # Get all text content - the site doesn't use proper h2/h3 headers
+        # Extrait tout le contenu texte (le site n'utilise pas de structure HTML claire)
         all_text = soup.get_text(separator='\n', strip=True)
         lines = [l.strip() for l in all_text.split('\n') if l.strip()]
         
+        # Prépare la liste des données extraites
         extracted_data = []
         extracted_data.append("=== DONNÉES MÉTÉO ET ASTRONOMIQUES EN TEMPS RÉEL DU SITE SKYWATCH ===\n")
         extracted_data.append(f"Dernière mise à jour : {now.strftime('%d/%m/%Y %H:%M:%S')}\n")
         
-        # Extract weather data - it appears after "Infos météo" or directly
-        # Look for key weather fields
+        # Mots-clés des données météo à extraire
         weather_keywords = {
             'Date', 'Heure', 'Température', 'Vent', 'Humidité', 
             'Lever du soleil', 'Coucher du soleil', 'Qualité du ciel',
@@ -118,46 +166,48 @@ def fetch_skywatch_data() -> str:
         }
         
         extracted_data.append("\n** MÉTÉO ACTUELLE **")
+        # Parcourt les lignes pour extraire les données météo
         i = 0
         while i < len(lines):
             line = lines[i]
-            # Check if this line is a weather keyword
+            # Vérifie si cette ligne contient un mot-clé météo
             if any(keyword in line for keyword in weather_keywords):
-                # The value is usually the next line
+                # La valeur est généralement à la ligne suivante
                 if i + 1 < len(lines):
                     value = lines[i + 1]
-                    # Make sure the value isn't another keyword
+                    # Vérifier que la valeur n'est pas un autre mot-clé
                     if not any(kw in value for kw in weather_keywords) and len(value) < 50:
                         extracted_data.append(f"{line}: {value}")
-                        i += 2  # Skip both lines
+                        i += 2  # Ignore les deux lignes traitées
                         continue
             i += 1
         
-        # Extract planet ephemeris data
+        # Extrait les données des éphémérides planétaires
         extracted_data.append("\n** ÉPHÉMÉRIDES DES PLANÈTES **")
         planet_names = ['Mercure', 'Vénus', 'Mars', 'Jupiter', 'Saturne', 'Uranus', 'Neptune']
         
+        # Pour chaque planète, extrait ses données (heures de lever, etc.)
         for planet in planet_names:
             if planet in lines:
                 idx = lines.index(planet)
                 extracted_data.append(f"{planet}:")
-                # Get some data after the planet name (lever time, etc.)
+                # Récupère les données après le nom de la planète
                 for j in range(idx + 1, min(idx + 5, len(lines))):
                     if lines[j] and len(lines[j]) < 30 and not any(p in lines[j] for p in planet_names):
                         extracted_data.append(f"  {lines[j]}")
         
-        # If we got good data, cache it
+        # Si les données ont été bien extraites, les mettre en cache
         if len(extracted_data) > 5:
             result = '\n'.join(extracted_data[:50])
-            # Mettre à jour le cache
+            # Stocke les données dans le cache global
             SKYWATCH_CACHE['data'] = result
             SKYWATCH_CACHE['timestamp'] = now
-            print(f"INFO - SkyWatch data cached ({len(extracted_data)} fields)")
+            print(f"INFO - Données SkyWatch mises en cache ({len(extracted_data)} champs)")
             return result
         
-        # Fallback: just return the relevant portion of text
-        print("DEBUG - Using fallback text extraction")
-        # Find the section with weather data (usually after "Skywatch" title)
+        # Plan de secours: extraire le texte pertinent directement
+        print("DEBUG - Utilisation de l'extraction de secours")
+        # Trouve la section avec les données météo (généralement après le titre "Skywatch")
         start_idx = 0
         for i, line in enumerate(lines):
             if 'Date' in line or 'Heure' in line:
@@ -167,71 +217,108 @@ def fetch_skywatch_data() -> str:
         weather_section = lines[start_idx:start_idx + 60]
         result = '\n'.join(['=== DONNÉES SKYWATCH ==='] + weather_section)
         
-        # Mettre à jour le cache même pour le fallback
+        # Mettre à jour le cache même avec le plan de secours
         SKYWATCH_CACHE['data'] = result
         SKYWATCH_CACHE['timestamp'] = now
         
         return result
             
     except Exception as e:
-        print(f"ERROR - Erreur lors du scraping: {str(e)}")
-        # En cas d'erreur, retourner les données en cache si disponibles
+        print(f"ERREUR - Erreur lors du web scraping: {str(e)}")
+        # En cas d'erreur, utiliser les données en cache si disponibles
         if SKYWATCH_CACHE['data']:
-            print("WARNING - Error occurred, using old cache")
+            print("ATTENTION - Erreur détectée, utilisation du cache")
             return SKYWATCH_CACHE['data']
         import traceback
         traceback.print_exc()
         return f"Impossible de récupérer les données du site: {str(e)}"
 
 def create_skywatch_document(skywatch_content: str):
-    """Create a LangChain Document from skywatch data"""
+    """
+    Crée un Document LangChain à partir des données SkyWatch.
+    
+    Cela permet d'intégrer les données météo en temps réel dans la chaîne RAG.
+    
+    Args:
+        skywatch_content (str): Contenu brut des données SkyWatch
+        
+    Returns:
+        Document: Document LangChain avec métadonnées
+    """
     from langchain_core.documents import Document
     return Document(
         page_content=skywatch_content,
         metadata={
             'source': 'skywatch.astronomie-pointedudiable.fr',
-            'type': 'realtime_weather'
+            'type': 'realtime_weather'  # Type de données: météo en temps réel
         }
     )
 def create_contextualize_q_system_prompt():
-    # System prompt for contextualizing questions based on chat history
+    """
+    Crée un prompt pour reformuler les questions en tenant compte de l'historique du chat.
+    
+    Ce prompt aide le modèle à comprendre les questions qui font référence aux messages précédents,
+    en les reformulant comme des questions autonomes.
+    
+    Returns:
+        ChatPromptTemplate: Template de prompt pour la contextualisation des questions
+    """
+    # Prompt système pour reformuler les questions en tenant compte de l'historique
     contextualize_q_system_prompt = (
-        "Given a chat history and the latest user question "
-        "which might reference context in the chat history, "
-        "formulate a standalone question which can be understood "
-        "without the chat history. Do NOT answer the question, "
-        "just reformulate it if needed and otherwise return it as is."
+        "Étant donné un historique de chat et la dernière question de l'utilisateur "
+        "qui pourrait faire référence au contexte de l'historique, "
+        "formule une question autonome qui peut être comprise "
+        "sans l'historique du chat. Ne réponds PAS à la question, "
+        "reformule-la simplement si nécessaire, sinon retourne-la telle quelle."
     )
 
-    # Create a chat prompt template for contextualizing questions
+    # Crée un template de prompt pour les messages de chat
     contextualize_q_prompt = ChatPromptTemplate.from_messages(
         [
             ("system", contextualize_q_system_prompt),
-            MessagesPlaceholder("chat_history"),  # Placeholder for chat history
-            ("human", "{input}"),  # Placeholder for user input
+            MessagesPlaceholder("chat_history"),  # Historique du chat
+            ("human", "{input}"),  # Input de l'utilisateur
         ]
     )
     return contextualize_q_prompt
 
-def load_vector_store(index_dir: Path,embedding_function):
-    if not index_dir.exists() or len(os.listdir(index_dir)) == 0 :
+def load_vector_store(index_dir: Path, embedding_function):
+    """
+    Charge l'index vectoriel FAISS depuis le disque.
+    
+    Args:
+        index_dir (Path): Répertoire contenant l'index FAISS
+        embedding_function: Fonction d'embedding à utiliser avec l'index
+        
+    Returns:
+        FAISS: Base de données vectorielle chargée, ou None si l'index n'existe pas
+    """
+    # Vérifie que le répertoire existe et contient des fichiers
+    if not index_dir.exists() or len(os.listdir(index_dir)) == 0:
         return None
-    return FAISS.load_local(index_dir, embeddings=embedding_function,allow_dangerous_deserialization=True)
+    # Charge l'index FAISS depuis le disque
+    return FAISS.load_local(index_dir, embeddings=embedding_function, allow_dangerous_deserialization=True)
 
 
 
-
-# Define prompt template function
+# ==============================================================================
+# PROMPTS ET TEMPLATES - Définition des instructions pour le chatbot
+# ==============================================================================
 
 def create_prompt(reasoning_mode=False):
     """
-    Returns a prompt instructed to produce a rephrased question based on the user's
-    last question, but referencing previous messages (chat history).
+    Crée le prompt principal pour le chatbot astronomique.
+    
+    Ce prompt définit le comportement et le ton du chatbot, ainsi que les instructions
+    pour répondre aux différents types de questions (météo, programme, Messier, etc.).
     
     Args:
-        reasoning_mode: If True, includes detailed reasoning steps in the response
+        reasoning_mode (bool): Si True, active le mode raisonnement détaillé
+        
+    Returns:
+        ChatPromptTemplate: Template du prompt système avec placeholders pour le contexte et l'historique
     """
-    # System instruction in French for the astronomy observatory chatbot
+    # Instructions système de base pour le chatbot
     base_instruction = """Tu es un ChatBot qui va répondre aux questions des utilisateurs d'observatoire astronomique de l'école IMT ATlantique campus de Brest.
         Si l'utilisateur pose des questions sur l'observatoire, tu dois répondre en te basant seulement sur les données fournies.
         Tes réponses doivent être courtes, concises et bien structurées.
@@ -322,12 +409,12 @@ def create_prompt(reasoning_mode=False):
         Si l'utilisateur pose des questions sur quelque chose autre que l'observatoire, tu refuses de répondre.
         Répond toujours en français."""
     
-    # Ajouter les instructions de raisonnement si le mode est activé
+    # Ajouter les instructions de raisonnement détaillé si le mode est activé
     if reasoning_mode:
         reasoning_instruction = """
         
         MODE RAISONNEMENT ACTIVÉ:
-        Avant de donner ta réponse finale, tu DOIS expliciter ton processus de réflexion en suivant cette structure :
+        Avant de donner ta réponse finale, tu DOIS expliciter ton processus de réflexion en suivant cette structure complète :
         
         🧠 **Processus de réflexion :**
         
@@ -359,9 +446,10 @@ def create_prompt(reasoning_mode=False):
     else:
         system_instruction = base_instruction
     
-    system_instruction += "\n\nUtiliser le context : {context}"
+    # Ajoute le placeholder pour le contexte (documents récupérés)
+    system_instruction += "\n\nContexte document fourni : {context}"
 
-    # Create chat prompt template with system instruction, chat history and user input
+    # Crée le template du prompt avec l'instruction système, l'historique et l'input
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_instruction),
         MessagesPlaceholder("chat_history"),
@@ -369,59 +457,103 @@ def create_prompt(reasoning_mode=False):
     return prompt
 
 def build_chains(vector, model, prompt, contextualize_q_prompt):
-    retriever  = vector.as_retriever()
+    """
+    Construit la chaîne de traitement RAG (Retrieval-Augmented Generation) complète.
+    
+    Cette chaîne:
+    1. Récupère les documents pertinents (retriever)
+    2. Reformule la question en tenant compte de l'historique
+    3. Combine les documents pour générer une réponse
+    
+    Args:
+        vector: Base de données vectorielle FAISS
+        model: Modèle de langage Mistral
+        prompt: Template du prompt principal
+        contextualize_q_prompt: Template pour reformuler les questions
+        
+    Returns:
+        Chain: Chaîne de récupération et génération d'augmentation
+    """
+    # Crée un retriever à partir de la base vectorielle
+    retriever = vector.as_retriever()
+    # Crée un retriever conscient de l'historique (reformule les questions)
     history_aware_retriever = create_history_aware_retriever(
         llm=model,
         retriever=retriever,
         prompt=contextualize_q_prompt
     )
+    # Crée la chaîne qui combine les documents pour générer une réponse
     document_chain = create_stuff_documents_chain(model, prompt)
+    # Chaîne finale: récupération + génération
     return create_retrieval_chain(history_aware_retriever, document_chain)
 
 
+# ==============================================================================
+# FONCTION PRINCIPALE - Récupération de la réponse avec documents utilisés
+# ==============================================================================
 
-# Modifier get_response pour retourner aussi les documents
 def get_response(user_input: str, chat_history: list, vector, chain, reasoning_mode=False):
+    """
+    Récupère la réponse du chatbot pour une question utilisateur.
+    
+    Cette fonction gère:
+    - La récupération des données SkyWatch si nécessaire
+    - La détection des questions sur les objets Messier
+    - L'invocation de la chaîne RAG
+    - Le retour des documents utilisés
+    
+    Args:
+        user_input (str): La question de l'utilisateur
+        chat_history (list): Historique de la conversation
+        vector: Base de données vectorielle FAISS
+        chain: Chaîne RAG construite
+        reasoning_mode (bool): Activer le mode raisonnement détaillé
+        
+    Returns:
+        tuple: (réponse_texte, documents_utilisés)
+    """
+    # Vérifie que la base vectorielle est chargée
     if vector is None:
         return ("Je n'ai trouvé aucun document. "
         "Veuillez d'abord en téléverser dans la barre latérale."), []
     
-    # Check if we need to fetch skywatch data BEFORE calling chain
+    # Initialise les variables pour les données SkyWatch
     skywatch_doc = None
     skywatch_content = None
     
+    # Récupère les données SkyWatch si la question porte sur la météo/programme
     if should_fetch_skywatch(user_input):
         skywatch_content = fetch_skywatch_data()
-        print(f"DEBUG - SkyWatch data fetched: {skywatch_content[:300]}...")
+        print(f"DEBUG - Données SkyWatch récupérées: {skywatch_content[:300]}...")
         
+        # Crée un document LangChain si les données sont valides
         if skywatch_content and "Impossible" not in skywatch_content:
             skywatch_doc = create_skywatch_document(skywatch_content)
-            print(f"INFO - SkyWatch document created")
+            print(f"INFO - Document SkyWatch créé")
     
-    # Check if we need to explicitly search for Messier catalog
+    # Détecte si la question porte sur les objets Messier
     needs_messier = should_use_messier_catalog(user_input)
     
-    # Add reasoning mode indicator to input if active
+    # Prépare l'input amélioré avec les indicateurs de mode
     enhanced_input = user_input
     if reasoning_mode:
         enhanced_input = f"[MODE RAISONNEMENT ACTIVÉ]\n\n{user_input}"
-        print("INFO - Reasoning mode activated")
+        print("INFO - Mode raisonnement activé")
     
-    # If Messier objects are mentioned, enhance the query to include catalog search
+    # Ajoute une instruction pour rechercher le catalogue Messier si nécessaire
     if needs_messier:
         enhanced_input = f"{enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
-        print("INFO - Enhanced input to search Messier catalog")
+        print("INFO - Input amélioré pour recherche dans catalogue Messier")
     
-    # Invoke the chain with original input
+    # Appelle la chaîne RAG avec l'input amélioré
     response = chain.invoke({"input": enhanced_input, "chat_history": chat_history})
-    documents = response.get('context', [])  # Les documents récupérés
+    documents = response.get('context', [])  # Documents récupérés par le retriever
     
-    # Add skywatch doc to documents list - it will be included in the context
+    # Ajoute le document SkyWatch s'il a été créé
     if skywatch_doc:
-        documents.insert(0, skywatch_doc)
+        documents.insert(0, skywatch_doc)  # Priorité au document SkyWatch
         
-        # Create a modified prompt that forces using skywatch data
-        # Re-run with enhanced input that includes skywatch info
+        # Crée un input amélioré qui force l'utilisation des données SkyWatch
         skywatch_enhanced_input = f"""QUESTION: {user_input}
 
 DONNÉES EN TEMPS RÉEL DU SITE SKYWATCH À UTILISER OBLIGATOIREMENT POUR RÉPONDRE:
@@ -435,24 +567,24 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
         if needs_messier:
             skywatch_enhanced_input = f"{skywatch_enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier]"
         
-        # Re-invoke with enhanced input
-        print(f"DEBUG - Re-invoking chain with enhanced input")
+        # Réinvoque la chaîne avec l'input contenant les données SkyWatch
+        print(f"DEBUG - Réinvocation de la chaîne avec input amélioré contenant données SkyWatch")
         response = chain.invoke({"input": skywatch_enhanced_input, "chat_history": chat_history})
-        # Get the new context
+        # Récupère le nouveau contexte
         documents = response.get('context', [])
-        # Add skywatch doc back to beginning
+        # Ajoute le document SkyWatch au début
         documents.insert(0, skywatch_doc)
     
-    # Load document index to get proper filenames
+    # Charge l'index des documents pour récupérer les noms de fichier propres
     doc_index_path = Path(__file__).resolve().parent.parent / "document_index.json"
     doc_id_to_name = {}
     if doc_index_path.exists():
         with open(doc_index_path, "r", encoding="utf-8") as f:
             name_to_id = json.load(f)
-            # Reverse the mapping: id -> name
+            # Inverse le mapping: id -> nom de fichier
             doc_id_to_name = {v: k for k, v in name_to_id.items()}
     
-    # Enrich documents with proper filenames
+    # Enrichit les documents avec leurs noms de fichier appropriés
     for doc in documents:
         if hasattr(doc, 'metadata'):
             doc_id = doc.metadata.get('doc_id')
@@ -461,32 +593,53 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
     
     return response['answer'], documents
 
-if __name__ == '__main__' :
-    chat_history = []
+
+# ==============================================================================
+# PROGRAMME PRINCIPAL - Boucle interactive du chatbot
+# ==============================================================================
+
+if __name__ == '__main__':
+    # Initialise les variables globales
+    chat_history = []  # Historique de la conversation
+    
+    # Charge les variables d'environnement (clé API Mistral)
     load_dotenv()
     api_key = os.getenv("MISTRAL_API_KEY")
+    
+    # Initialise le modèle et la fonction d'embedding
     model, embedding_fn = model_and_embedding_function(api_key)
+    
+    # Charge la base vectorielle FAISS
     vector = load_vector_store(Path("faiss_index"), embedding_fn)
+    
+    # Crée les prompts
     prompt = create_prompt()
     contextual_prompt = create_contextualize_q_system_prompt()
+    
+    # Construit la chaîne RAG complète
     chain = build_chains(vector, model, prompt, contextual_prompt)
+    
+    # Boucle interactive principale
     while True:
         user_input = input("user : ")
+        
+        # Essaye de récupérer une réponse (avec gestion des erreurs)
         while True:
             try:
-                response, documents = get_response(user_input,chat_history,vector,chain)
-            except Exception as e :
-                print(e)
+                response, documents = get_response(user_input, chat_history, vector, chain)
+            except Exception as e:
+                print(f"Erreur: {e}")
                 continue
             break
-        chat_history.extend(
-        [
+        
+        # Ajoute le message et la réponse à l'historique du chat
+        chat_history.extend([
             HumanMessage(content=user_input),
             AIMessage(content=response),
-        ]
-        )
+        ])
 
-        print("assisatnt : ",response)
+        # Affiche la réponse et les documents utilisés
+        print("assistant : ", response)
         print("\nDocuments utilisés:")
         for doc in documents:
-            print(f"- {doc.metadata.get('source', 'Unknown')}")
+            print(f"- {doc.metadata.get('source', 'Inconnu')}")
