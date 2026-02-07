@@ -51,44 +51,7 @@ st.set_page_config(
 )
 
 # Charger les variables d'environnement depuis le fichier .env
-<<<<<<< HEAD
-# Charger les variables d'environnement depuis le fichier .env
 load_dotenv(override=True)
-
-# ==============================================================================
-<<<<<<< HEAD
-# GESTION DES VARIABLES D'ENVIRONNEMENT (Développement + Streamlit Cloud)
-# ==============================================================================
-
-def get_env_variable(var_name, default=""):
-    """
-    Récupère une variable d'environnement de manière robuste.
-    
-    En production (Streamlit Cloud), utilise st.secrets
-    En développement (local), utilise os.getenv
-    
-    Args:
-        var_name (str): Nom de la variable
-        default (str): Valeur par défaut
-        
-    Returns:
-        str: Valeur de la variable
-    """
-    try:
-        # Essayer d'abord Streamlit Cloud secrets (avec gestion d'erreur)
-        if hasattr(st, 'secrets'):
-            try:
-                if var_name in st.secrets:
-                    return st.secrets[var_name]
-            except Exception:
-                # Si l'accès à secrets échoue, continuer vers os.getenv
-                pass
-    except Exception:
-        pass
-    
-    # Sinon, variables d'environnement locales
-    return os.getenv(var_name, default)
-
 
 # ==============================================================================
 =======
