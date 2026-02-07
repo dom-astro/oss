@@ -400,7 +400,7 @@ elif st.session_state.get('authentication_status'):
 
     st.markdown(f"""
     Salut **{user_name}** ! 👋  
-    Je peux t'aider avec l'utilisation et la configuration des équipements
+    Je peux t'aider avec l'utilisation et la configuration des équipements.
     Pose-moi une question ou demande-moi de l'aide !
     """)
 
