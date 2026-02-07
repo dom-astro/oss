@@ -18,3 +18,5 @@ python-dotenv==1.1.0
 pdf2image==1.17.0
 pytesseract==0.3.13
 pillow-heif==0.6.1
+pi-heif==0.2.1
+pypdf==4.0.1
