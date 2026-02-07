@@ -50,10 +50,11 @@ st.set_page_config(
     }
 )
 
-# Charger les variables d'environnement depuis le fichier .env (développement local)
+# Charger les variables d'environnement depuis le fichier .env
 load_dotenv(override=True)
 
 # ==============================================================================
+<<<<<<< HEAD
 # GESTION DES VARIABLES D'ENVIRONNEMENT (Développement + Streamlit Cloud)
 # ==============================================================================
 
@@ -88,6 +89,8 @@ def get_env_variable(var_name, default=""):
 
 
 # ==============================================================================
+=======
+>>>>>>> parent of 8ff5a04 (Maj pour streamlite cloud)
 # FONCTIONS UTILITAIRES
 # ==============================================================================
 
@@ -105,8 +108,8 @@ def send_email(receiver_email, subject, body):
     # Configuration du serveur SMTP Gmail
     smtp_host = "smtp.gmail.com"
     smtp_port = 587  # Port SMTP TLS
-    smtp_user = get_env_variable("SMTP_USER")  # Email expéditeur
-    smtp_pass = get_env_variable("SMTP_PASSWORD")  # Mot de passe applicatif Gmail
+    smtp_user = os.getenv("SMTP_USER")  # Email expéditeur
+    smtp_pass = os.getenv("SMTP_PASSWORD")  # Mot de passe applicatif Gmail
     
     # Connexion au serveur SMTP
     server = smtplib.SMTP(smtp_host, smtp_port)
@@ -129,56 +132,21 @@ def send_email(receiver_email, subject, body):
 # AUTHENTIFICATION DES UTILISATEURS
 # ==============================================================================
 
+<<<<<<< HEAD
 # Charger la clé API Mistral depuis les variables d'environnement ou secrets Streamlit Cloud
 # Remarque: On initialise avec None et on la charge dynamiquement plus tard
 api_key = None
+=======
+# Charger la clé API Mistral depuis les variables d'environnement
+api_key = os.getenv("MISTRAL_API_KEY")
+>>>>>>> parent of 8ff5a04 (Maj pour streamlite cloud)
 
 # Chemin vers le fichier de configuration utilisateurs
 config_path = Path(__file__).resolve().parent.parent / "config.yaml"
 
-# Charger le config.yaml (en local ou générer dynamiquement sur Streamlit Cloud)
-def load_config():
-    """
-    Charge le fichier config.yaml ou le génère depuis les secrets Streamlit Cloud.
-    
-    Returns:
-        dict: Configuration chargée
-    """
-    # En développement local : charger depuis le fichier
-    if config_path.exists():
-        with open(config_path, 'r') as file:
-            return yaml.load(file, Loader=SafeLoader)
-    
-    # En production (Streamlit Cloud) : générer depuis secrets
-    if hasattr(st, 'secrets') and 'config_cookie_key' in st.secrets:
-        return {
-            "cookie": {
-                "name": st.secrets.get("config_cookie_name", "streamlit_auth"),
-                "key": st.secrets.get("config_cookie_key", "default_key_change_me"),
-                "expiry_days": st.secrets.get("config_cookie_expiry", 0)
-            },
-            "credentials": {
-                "usernames": {}  # Les utilisateurs seront gérés via la base de données
-            }
-        }
-    
-    # Fallback : retourner une config vide (à configurer)
-    return {
-        "cookie": {"name": "streamlit_auth", "key": "default_key", "expiry_days": 0},
-        "credentials": {"usernames": {}}
-    }
-
-config = load_config()
-
-# Initialise l'authenticateur Streamlit avec la configuration
+# Initialise l'authenticateur Streamlit avec le fichier config
 # Permet de gérer les inscriptions, connexions et mots de passe
-authenticator = stauth.Authenticate(
-    config.get('credentials'),
-    config.get('cookie', {}).get('name'),
-    config.get('cookie', {}).get('key'),
-    config.get('cookie', {}).get('expiry_days', 30)
-)
-
+authenticator = stauth.Authenticate(str(config_path))
 # ------------- Register new user panel ------------------------
 # Panneau de gestion des utilisateurs dans la barre latérale
 with st.sidebar:
