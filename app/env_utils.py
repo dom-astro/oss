@@ -119,8 +119,3 @@ def get_auth_config_path():
     # Si le fichier existe en local, le retourner
     if config_path.exists():
         return config_path
-
-    raise FileNotFoundError(
-        f"config.yaml introuvable à: {config_path}\n"
-        f"Crée ce fichier en copiant config.example.yaml"
-    )
