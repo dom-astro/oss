@@ -1,67 +1,19 @@
-# ============================================================================
-# REQUIREMENTS.TXT - Dépendances pour l'Observatoire Astronomique Chatbot
-# ============================================================================
-# OPTIMISÉ POUR STREAMLIT CLOUD - Février 2026
-#
-# Notes importantes:
-# - torch remplacé par version CPU légère (whl fourni par Streamlit)
-# - pytesseract/pdf2image optionnels si OCR non utilisé sur cloud
-# - Versions compatibles avec LangChain 0.3.x
-# ============================================================================
-
-# ============================================================================
-# FRAMEWORK LANGCHAIN - RAG (Retrieval-Augmented Generation)
-# ============================================================================
 langchain==0.3.24
 langchain-core==0.3.56
 langchain-community==0.3.22
 langchain-mistralai==0.2.10
-
-# ============================================================================
-# MODÈLES IA - Mistral API + Embeddings
-# ============================================================================
 mistralai==1.7.0
-tenacity==9.0.0              # Retry logic pour API calls
-
-# ============================================================================
-# VECTEUR STORE ET RECHERCHE SÉMANTIQUE
-# ============================================================================
-faiss-cpu==1.10.0            # Stockage/recherche vectorielle CPU-optimisé
-
-# ============================================================================
-# TRAITEMENT DE DOCUMENTS PDF
-# ============================================================================
-PyMuPDF==1.25.5              # Extraction de texte/images depuis PDFs (fitz)
-Pillow==11.2.1               # Traitement d'images
-pdfminer.six==20240706       # Extraction PDF avancée
-unstructured==0.17.2         # Parsing structuré de documents
-# unstructured[pdf]==0.17.2   # Si vous avez besoin du support PDF complet
-
-# ============================================================================
-# INTERFACE WEB - STREAMLIT
-# ============================================================================
-streamlit==1.44.1            # Framework web pour l'interface
-streamlit-authenticator==0.4.2  # Authentification utilisateurs
-PyYAML==6.0.1                # Fichiers config YAML (config.yaml)
-
-# ============================================================================
-# WEB SCRAPING ET REQUÊTES HTTP
-# ============================================================================
-requests==2.31.0             # Requêtes HTTP (SkyWatch data)
-beautifulsoup4==4.12.3       # Web scraping (parsing HTML)
-
-# ============================================================================
-# UTILITAIRES PYTHON
-# ============================================================================
-python-dotenv==1.1.0         # Chargement .env pour variables d'environnement
-
-# ============================================================================
-# DÉPENDANCES OPTIONNELLES - Décommenter si nécessaire
-# ============================================================================
-# Note: Sur Streamlit Cloud, OCR et pdf2image peuvent necessiter des 
-# system packages supplémentaires. Contacter le support Streamlit si erreurs.
-
-# pdf2image==1.17.0           # Conversion PDF -> images (nécessite poppler)
-# pytesseract==0.3.13         # OCR pour extraire texte des images (nécessite tesseract)
-# jupyter==1.0.0              # Jupyter notebooks (dev only)
-# ipywidgets==8.1.7           # Widgets interactifs Jupyter (dev only)
+tenacity==9.0.0
+faiss-cpu==1.10.0
+PyMuPDF==1.25.5
+Pillow==11.2.1
+pdfminer.six==20240706
+unstructured==0.17.2
+streamlit==1.44.1
+streamlit-authenticator==0.4.2
+PyYAML==6.0.1
+requests==2.31.0
+beautifulsoup4==4.12.3
+python-dotenv==1.1.0
+pdf2image==1.17.0
+pytesseract==0.3.13

@@ -3,3 +3,4 @@ libsm6
 libxext6
 libxrender-dev
 liblz4-dev
+tesseract-ocr
