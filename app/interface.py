@@ -385,12 +385,6 @@ elif st.session_state.get('authentication_status'):
     # ==============================================================================
     # INTERFACE DE PRÉSENTATION ET DE BIENVENUE
     # ==============================================================================
-    st.markdown(f"""
-    Salut **{user_name}** ! 👋  
-    Je suis ton assistant virtuel pour l'observatoire astronomique. 😊  
-    Je peux t'aider avec l'utilisation et la configuration des équipements
-    Pose-moi une question ou demande-moi de l'aide !
-    """)
 
     # Ajouter le logo "Gens de la Lune"
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -402,7 +396,14 @@ elif st.session_state.get('authentication_status'):
             st.info("Logo 'Gens de la Lune' non trouvé. Veuillez placer l'image dans assets/images/")
 
     # Add a title
-    st.title("Bienvenue dans l'Observatoire Astronomique De la pointe du Diable 🚀")
+    st.title("Bienvenue dans l'Observatoire Astronomique De la pointe du Diable  🔭")
+
+    st.markdown(f"""
+    Salut **{user_name}** ! 👋  
+    Je suis **Astrobot**, ton assistant virtuel pour l'observatoire astronomique. 🤖  
+    Je peux t'aider avec l'utilisation et la configuration des équipements
+    Pose-moi une question ou demande-moi de l'aide !
+    """)
 
     with st.sidebar:
         # ==============================================================================
