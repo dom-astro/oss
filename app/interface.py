@@ -26,7 +26,7 @@ from email.mime.text import MIMEText  # Format texte pour emails
 
 # Utilitaires Python
 import os  # Gestion des fichiers/répertoires
-from env_utils import get_env_variable, detect_environment  # Gestion centralisée des variables d'environnement
+from env_utils import get_env_variable, detect_environment, get_auth_config_path  # Gestion centralisée des variables d'environnement
 import json  # Manipulation de JSON
 from datetime import datetime  # Gestion des dates/heures
 from dotenv import load_dotenv  # Chargement des variables d'environnement
@@ -111,7 +111,8 @@ def send_email(receiver_email, subject, body):
 # pour éviter les problèmes avec st.secrets en local
 
 # Chemin vers le fichier de configuration utilisateurs
-config_path = Path(__file__).resolve().parent.parent / "config.yaml"
+# Gère automatiquement: fichier local ou secrets Streamlit Cloud TOML
+config_path = get_auth_config_path()
 
 # Initialise l'authenticateur Streamlit avec le fichier config
 # Permet de gérer les inscriptions, connexions et mots de passe
