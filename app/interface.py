@@ -54,6 +54,72 @@ st.set_page_config(
 load_dotenv(override=True)
 
 # ==============================================================================
+# GESTION DE L'ENVIRONNEMENT (Local vs Streamlit Cloud)
+# ==============================================================================
+
+def detect_environment():
+    """
+    Détecte si l'application s'exécute en local ou sur Streamlit Cloud.
+    
+    Returns:
+        str: "local" ou "cloud"
+    """
+    # Streamlit Cloud ajoute toujours cette variable d'environnement
+    if os.getenv("STREAMLIT_SERVER_HEADLESS") == "true":
+        return "cloud"
+    # Vérifier si on est dans un conteneur Docker
+    if os.path.exists("/.dockerenv"):
+        return "docker"
+    # Sinon, on est en local
+    return "local"
+
+ENVIRONMENT = detect_environment()
+
+def get_env_variable(var_name, default=""):
+    """
+    Récupère une variable d'environnement de manière sécurisée selon l'environnement.
+    
+    En production (Streamlit Cloud):
+    - Utilise st.secrets en priorité
+    - Fallback sur les variables d'environnement système
+    
+    En développement (local):
+    - Utilise d'abord le fichier .env (chargé via load_dotenv)
+    - Puis les variables d'environnement système
+    
+    Args:
+        var_name (str): Nom de la variable d'environnement
+        default (str): Valeur par défaut si non trouvée
+        
+    Returns:
+        str: Valeur de la variable
+    """
+    # Streamlit Cloud: Essayer d'abord les secrets
+    if ENVIRONMENT == "cloud":
+        try:
+            if hasattr(st, 'secrets'):
+                try:
+                    # Essayer d'accéder à la variable dans st.secrets
+                    if var_name in st.secrets:
+                        return st.secrets[var_name]
+                except Exception as e:
+                    # st.secrets non disponibles ou erreur d'accès
+                    pass
+        except Exception:
+            pass
+    
+    # Fallback: variables d'environnement système (*.env en local, env vars en cloud)
+    env_value = os.getenv(var_name)
+    if env_value is not None:
+        return env_value
+    
+    # Valeur par défaut
+    if default:
+        return default
+    
+    return ""
+
+# ==============================================================================
 # FONCTIONS UTILITAIRES
 # ==============================================================================
 
@@ -71,8 +137,12 @@ def send_email(receiver_email, subject, body):
     # Configuration du serveur SMTP Gmail
     smtp_host = "smtp.gmail.com"
     smtp_port = 587  # Port SMTP TLS
-    smtp_user = os.getenv("SMTP_USER")  # Email expéditeur
-    smtp_pass = os.getenv("SMTP_PASSWORD")  # Mot de passe applicatif Gmail
+    # Récupérer les credentials SMTP de manière sécurisée
+    smtp_user = get_env_variable("SMTP_USER")  # Email expéditeur
+    smtp_pass = get_env_variable("SMTP_PASSWORD")  # Mot de passe applicatif Gmail
+    
+    if not smtp_user or not smtp_pass:
+        raise ValueError("SMTP_USER et SMTP_PASSWORD ne sont pas configurés")
     
     # Connexion au serveur SMTP
     server = smtplib.SMTP(smtp_host, smtp_port)
@@ -95,8 +165,8 @@ def send_email(receiver_email, subject, body):
 # AUTHENTIFICATION DES UTILISATEURS
 # ==============================================================================
 
-# Charger la clé API Mistral depuis les variables d'environnement
-api_key = os.getenv("MISTRAL_API_KEY")
+# La clé API Mistral sera chargée dynamiquement après l'authentification
+# pour éviter les problèmes avec st.secrets en local
 
 # Chemin vers le fichier de configuration utilisateurs
 config_path = Path(__file__).resolve().parent.parent / "config.yaml"
@@ -220,8 +290,17 @@ elif st.session_state.get('authentication_status') is None:
 # ==============================================================================
 # Cette section s'exécute uniquement si l'utilisateur est authentifié
 elif st.session_state.get('authentication_status'):
-    if api_key is None:
-        raise st.error("MISTRAL_API_KEY n'est pas défini dans les variables d'environnement")
+    # Charger la clé API Mistral de manière sécurisée selon l'environnement
+    api_key = get_env_variable("MISTRAL_API_KEY")
+    
+    if not api_key:
+        st.error(f"❌ MISTRAL_API_KEY n'est pas configuré.\n\n"
+                f"**Environnement détecté**: {ENVIRONMENT.upper()}\n\n"
+                f"**Instructions**:\n"
+                f"- En local: Ajouter `MISTRAL_API_KEY=votre_clé` dans le fichier `.env`\n"
+                f"- Sur Streamlit Cloud: Ajouter le secret dans les paramètres de l'application\n"
+                f"- Dans Docker: Passer la variable via `-e MISTRAL_API_KEY=votre_clé`")
+        st.stop()
 
     # ==============================================================================
     # RÉPERTOIRES DE TRAVAIL
