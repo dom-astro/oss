@@ -9,7 +9,7 @@ Pillow==11.2.1
 pytesseract==0.3.13
 python-dotenv==1.1.0
 streamlit==1.44.1
-unstructured==0.17.2
+unstructured==0.16.0
 torch==2.10.0
 faiss-cpu==1.10.0
 hf_xet==1.0.5
