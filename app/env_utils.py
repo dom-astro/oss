@@ -86,8 +86,13 @@ def get_auth_config_path():
     import yaml
     import tempfile
     
+    config_path = Path(__file__).resolve().parent.parent / "config.yaml"
     environment = detect_environment()
-        
+    
+    # Si le fichier existe en local, le retourner
+    if config_path.exists():
+        return config_path
+    
     # En Streamlit Cloud, chercher dans les secrets TOML
     if environment == "cloud":
         try:
@@ -115,7 +120,24 @@ def get_auth_config_path():
         except (ImportError, Exception):
             pass
     
-    config_path = Path(__file__).resolve().parent.parent / "config.yaml"
-    # Si le fichier existe en local, le retourner
-    if config_path.exists():
-        return config_path
+    # Erreur: config introuvable
+    if environment == "cloud":
+        raise FileNotFoundError(
+            "❌ Configuration d'authentification introuvable!\n\n"
+            "Options:\n"
+            "1. Ajouter config.yaml au dépôt GitHub, ou\n"
+            "2. Ajouter les credentials dans Streamlit Cloud Secrets\n\n"
+            "Format des secrets TOML pour Streamlit Cloud:\n"
+            "[credentials.usernames.admin]\n"
+            "email = 'admin@example.com'\n"
+            "first_name = 'Admin'\n"
+            "last_name = 'User'\n"
+            "name = 'Admin User'\n"
+            "password = '\$2b\$12\$...'  # Hash bcrypt\n"
+            "roles = ['admin']\n"
+        )
+    else:
+        raise FileNotFoundError(
+            f"config.yaml introuvable à: {config_path}\n"
+            f"Crée ce fichier en copiant config.example.yaml"
+        )

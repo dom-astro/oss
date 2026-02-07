@@ -12,7 +12,6 @@ ENV/
 env/
 
 # Users info
-config.yaml
 chat_histories/
 # Jupyter
 .ipynb_checkpoints/

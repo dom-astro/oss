@@ -1,0 +1,24 @@
+cookie:
+  expiry_days: 0
+  key: uKHOapJ42TOpdvHTUBgBiSEbzH3fWHVh
+  name: UwU_is_you
+credentials:
+  usernames:
+    dom-astro:
+      email: dominique.fabre.astro@gmail.com
+      failed_login_attempts: 0
+      first_name: Dominique
+      last_name: Fabre
+      logged_in: true
+      password: $2b$12$ELwG.14QoXPlxW1HiTtIEuSm9e0TfpT7Jzj/8bhWEZ8xp8K47iCzK
+      roles:
+      - admin
+    solenn:
+      email: solenn.fabre@gmail.com
+      failed_login_attempts: 0
+      first_name: Solenn
+      last_name: Fabre
+      logged_in: true
+      password: $2b$12$udswjH1nU9cUrpNfzUqeRej1WPRWyyfyWfensHiGBYrdlVy4.dfse
+      roles:
+      - admin
