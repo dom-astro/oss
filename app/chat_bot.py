@@ -785,12 +785,12 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
         reasoning_mode (bool): Activer le mode raisonnement détaillé
         
     Returns:
-        tuple: (réponse_texte, documents_utilisés)
+        tuple: (réponse_texte, documents_utilisés, messier_images)
     """
     # Vérifie que la base vectorielle est chargée
     if vector is None:
         return ("Je n'ai trouvé aucun document. "
-        "Veuillez d'abord en téléverser dans la barre latérale."), []
+        "Veuillez d'abord en téléverser dans la barre latérale."), [], []
     
     # Initialise les variables pour les données SkyWatch
     skywatch_doc = None
@@ -909,7 +909,7 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
             if doc_id and doc_id in doc_id_to_name:
                 doc.metadata['source'] = doc_id_to_name[doc_id]
     
-    return response['answer'], documents
+    return response['answer'], documents, messier_images
 
 
 # ==============================================================================
