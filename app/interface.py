@@ -51,6 +51,7 @@ st.set_page_config(
 )
 
 # Charger les variables d'environnement depuis le fichier .env
+<<<<<<< HEAD
 # Charger les variables d'environnement depuis le fichier .env
 load_dotenv(override=True)
 
@@ -91,6 +92,11 @@ def get_env_variable(var_name, default=""):
 
 # ==============================================================================
 =======
+>>>>>>> parent of 8ff5a04 (Maj pour streamlite cloud)
+=======
+load_dotenv(override=True)
+
+# ==============================================================================
 >>>>>>> parent of 8ff5a04 (Maj pour streamlite cloud)
 # FONCTIONS UTILITAIRES
 # ==============================================================================
