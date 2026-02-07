@@ -51,6 +51,7 @@ st.set_page_config(
 )
 
 # Charger les variables d'environnement depuis le fichier .env
+# Charger les variables d'environnement depuis le fichier .env
 load_dotenv(override=True)
 
 # ==============================================================================
@@ -132,14 +133,8 @@ def send_email(receiver_email, subject, body):
 # AUTHENTIFICATION DES UTILISATEURS
 # ==============================================================================
 
-<<<<<<< HEAD
-# Charger la clé API Mistral depuis les variables d'environnement ou secrets Streamlit Cloud
-# Remarque: On initialise avec None et on la charge dynamiquement plus tard
-api_key = None
-=======
 # Charger la clé API Mistral depuis les variables d'environnement
 api_key = os.getenv("MISTRAL_API_KEY")
->>>>>>> parent of 8ff5a04 (Maj pour streamlite cloud)
 
 # Chemin vers le fichier de configuration utilisateurs
 config_path = Path(__file__).resolve().parent.parent / "config.yaml"
