@@ -71,9 +71,18 @@ def get_env_variable(var_name, default=""):
     Returns:
         str: Valeur de la variable
     """
-    # Essayer d'abord Streamlit Cloud secrets
-    if hasattr(st, 'secrets') and var_name in st.secrets:
-        return st.secrets[var_name]
+    try:
+        # Essayer d'abord Streamlit Cloud secrets (avec gestion d'erreur)
+        if hasattr(st, 'secrets'):
+            try:
+                if var_name in st.secrets:
+                    return st.secrets[var_name]
+            except Exception:
+                # Si l'accès à secrets échoue, continuer vers os.getenv
+                pass
+    except Exception:
+        pass
+    
     # Sinon, variables d'environnement locales
     return os.getenv(var_name, default)
 
@@ -121,7 +130,8 @@ def send_email(receiver_email, subject, body):
 # ==============================================================================
 
 # Charger la clé API Mistral depuis les variables d'environnement ou secrets Streamlit Cloud
-api_key = get_env_variable("MISTRAL_API_KEY")
+# Remarque: On initialise avec None et on la charge dynamiquement plus tard
+api_key = None
 
 # Chemin vers le fichier de configuration utilisateurs
 config_path = Path(__file__).resolve().parent.parent / "config.yaml"
@@ -285,8 +295,12 @@ elif st.session_state.get('authentication_status') is None:
 # ==============================================================================
 # Cette section s'exécute uniquement si l'utilisateur est authentifié
 elif st.session_state.get('authentication_status'):
-    if api_key is None:
-        raise st.error("MISTRAL_API_KEY n'est pas défini dans les variables d'environnement")
+    # Charger la clé API Mistral au moment de l'authentification
+    api_key = get_env_variable("MISTRAL_API_KEY")
+    
+    if api_key is None or api_key == "":
+        st.error("❌ MISTRAL_API_KEY n'est pas défini dans les variables d'environnement. Consultez votre administrateur.")
+        st.stop()
 
     # ==============================================================================
     # RÉPERTOIRES DE TRAVAIL
