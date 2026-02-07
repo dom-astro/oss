@@ -14,6 +14,7 @@ from pdf2image import convert_from_path  # Conversion PDF → images
 
 # Utilitaires
 import io  # Gestion de flux de bytes
+from env_utils import get_env_variable  # Gestion centralisée des variables d'environnement
 
 # Embedder parent
 from Embedder import Embedder  # Classe de base pour l'embedding
@@ -178,7 +179,9 @@ if __name__ == "__main__":
     
     # Définit les répertoires de travail
     DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
-    api_key = os.getenv("MISTRAL_API_KEY")
+    api_key = get_env_variable("MISTRAL_API_KEY")
+    if not api_key:
+        raise ValueError("❌ MISTRAL_API_KEY non configurée. Ajoute-la à .env ou aux variables d'environnement.")
     
     # Crée une instance d'EmbedderWithOcr et traite un PDF exemple
     embedder = EmbedderWithOcr(api_key)

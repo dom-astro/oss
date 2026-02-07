@@ -22,6 +22,7 @@ import json  # Manipulation de JSON
 import requests  # Requêtes HTTP
 from bs4 import BeautifulSoup  # Web scraping
 from datetime import datetime, timedelta  # Gestion des dates/heures
+from env_utils import get_env_variable  # Gestion centralisée des variables d'environnement
 
 # ==============================================================================
 # CACHE GLOBAL - Stockage des données météo/programme du site SkyWatch
@@ -921,7 +922,9 @@ if __name__ == '__main__':
     
     # Charge les variables d'environnement (clé API Mistral)
     load_dotenv()
-    api_key = os.getenv("MISTRAL_API_KEY")
+    api_key = get_env_variable("MISTRAL_API_KEY")
+    if not api_key:
+        raise ValueError("❌ MISTRAL_API_KEY non configurée. Ajoute-la à .env ou aux variables d'environnement.")
     
     # Initialise le modèle et la fonction d'embedding
     model, embedding_fn = model_and_embedding_function(api_key)

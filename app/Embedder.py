@@ -14,6 +14,7 @@ from dotenv import load_dotenv  # Chargement des variables d'environnement
 from pathlib import Path  # Gestion des chemins fichiers
 import json  # Manipulation de JSON
 import uuid  # Génération d'identifiants uniques
+from env_utils import get_env_variable  # Gestion centralisée des variables d'environnement
 
 # ==============================================================================
 # CLASSE EMBEDDER - Gestion de base des embeddings
@@ -245,7 +246,9 @@ if __name__ == "__main__":
     
     # Chemins vers les répertoires de travail
     DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
-    api_key = os.getenv("MISTRAL_API_KEY")
+    api_key = get_env_variable("MISTRAL_API_KEY")
+    if not api_key:
+        raise ValueError("❌ MISTRAL_API_KEY non configurée. Ajoute-la à .env ou aux variables d'environnement.")
     
     # Crée une instance d'Embedder et affiche les doc_id disponibles
     embedder = Embedder(api_key)

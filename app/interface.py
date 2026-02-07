@@ -26,6 +26,7 @@ from email.mime.text import MIMEText  # Format texte pour emails
 
 # Utilitaires Python
 import os  # Gestion des fichiers/répertoires
+from env_utils import get_env_variable, detect_environment  # Gestion centralisée des variables d'environnement
 import json  # Manipulation de JSON
 from datetime import datetime  # Gestion des dates/heures
 from dotenv import load_dotenv  # Chargement des variables d'environnement
@@ -57,67 +58,8 @@ load_dotenv(override=True)
 # GESTION DE L'ENVIRONNEMENT (Local vs Streamlit Cloud)
 # ==============================================================================
 
-def detect_environment():
-    """
-    Détecte si l'application s'exécute en local ou sur Streamlit Cloud.
-    
-    Returns:
-        str: "local" ou "cloud"
-    """
-    # Streamlit Cloud ajoute toujours cette variable d'environnement
-    if os.getenv("STREAMLIT_SERVER_HEADLESS") == "true":
-        return "cloud"
-    # Vérifier si on est dans un conteneur Docker
-    if os.path.exists("/.dockerenv"):
-        return "docker"
-    # Sinon, on est en local
-    return "local"
-
+# Détecte l'environnement d'exécution (local, docker ou cloud)
 ENVIRONMENT = detect_environment()
-
-def get_env_variable(var_name, default=""):
-    """
-    Récupère une variable d'environnement de manière sécurisée selon l'environnement.
-    
-    En production (Streamlit Cloud):
-    - Utilise st.secrets en priorité
-    - Fallback sur les variables d'environnement système
-    
-    En développement (local):
-    - Utilise d'abord le fichier .env (chargé via load_dotenv)
-    - Puis les variables d'environnement système
-    
-    Args:
-        var_name (str): Nom de la variable d'environnement
-        default (str): Valeur par défaut si non trouvée
-        
-    Returns:
-        str: Valeur de la variable
-    """
-    # Streamlit Cloud: Essayer d'abord les secrets
-    if ENVIRONMENT == "cloud":
-        try:
-            if hasattr(st, 'secrets'):
-                try:
-                    # Essayer d'accéder à la variable dans st.secrets
-                    if var_name in st.secrets:
-                        return st.secrets[var_name]
-                except Exception as e:
-                    # st.secrets non disponibles ou erreur d'accès
-                    pass
-        except Exception:
-            pass
-    
-    # Fallback: variables d'environnement système (*.env en local, env vars en cloud)
-    env_value = os.getenv(var_name)
-    if env_value is not None:
-        return env_value
-    
-    # Valeur par défaut
-    if default:
-        return default
-    
-    return ""
 
 # ==============================================================================
 # FONCTIONS UTILITAIRES
