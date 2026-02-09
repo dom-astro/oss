@@ -602,7 +602,7 @@ elif st.session_state.get('authentication_status'):
         "Quel est le programme ce soir?",
         "Quelle est la météo actuelle?",
         "Comment utiliser le télescope?",
-        "Quels objets peut-on observer?"
+        "Quels sont les objets de Messier visibles ce soir?"
     ]
     
     # Variable pour tracker si une question suggérée est cliquée
@@ -702,6 +702,10 @@ elif st.session_state.get('authentication_status'):
             if messier_images:
                 st.markdown("---")
                 st.subheader("🔭 Photographies des objets Messier")
+
+                @st.dialog("Aperçu de l'image")
+                def show_messier_image(image_path, caption):
+                    st.image(image_path, caption=caption, use_container_width=True)
                 
                 # Display each image with its information
                 for idx, img_data in enumerate(messier_images, 1):
@@ -718,8 +722,10 @@ elif st.session_state.get('authentication_status'):
                                 st.markdown("*Aucune information trouvée dans Catalogue Messier.pdf pour cet objet.*")
                         
                         with col_img:
-                            # Display image at original file size (no resizing)
+                            # Display image and provide a zoom button
                             st.image(img_data['image_path'], caption=img_data['source'])
+                            if st.button("Agrandir", key=f"zoom_{img_data['messier_label']}"):
+                                show_messier_image(img_data['image_path'], img_data['source'])
                         
                         st.markdown("---")
                     except Exception as e:
