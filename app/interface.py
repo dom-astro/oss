@@ -663,7 +663,24 @@ elif st.session_state.get('authentication_status'):
 
         # 4) Réponse finale : remplace le placeholder par le contenu réel
         with assistant_slot.chat_message("assistant"):
-            st.write(response)
+            rendered_messier_blocks = False
+            if messier_images:
+                blocks = [b.strip() for b in response.split("\n\n") if b.strip()]
+                if blocks:
+                    for idx, block in enumerate(blocks, 1):
+                        col_info, col_img = st.columns([0.7, 0.3], gap="medium")
+                        with col_info:
+                            st.markdown(block.replace("\n", "  \n"))
+                        with col_img:
+                            if idx <= len(messier_images):
+                                img_data = messier_images[idx - 1]
+                                st.image(img_data['image_path'], caption=img_data['source'])
+                        if idx < len(blocks):
+                            st.markdown("---")
+                    rendered_messier_blocks = True
+
+            if not rendered_messier_blocks:
+                st.write(response)
 
             # Display Messier page top 10 if available
             messier_page_data = None
@@ -698,19 +715,13 @@ elif st.session_state.get('authentication_status'):
                 else:
                     st.info("Aucun objet Messier n'a été extrait de la page publique.")
             
-            # Display Messier images if available
-            if messier_images:
+            # Display Messier images if available (fallback if not rendered alongside blocks)
+            if messier_images and not rendered_messier_blocks:
                 st.markdown("---")
                 st.subheader("🔭 Photographies des objets Messier")
-
-                @st.dialog("Aperçu de l'image")
-                def show_messier_image(image_path, caption):
-                    st.image(image_path, caption=caption, use_container_width=True)
                 
-                # Display each image with its information
                 for idx, img_data in enumerate(messier_images, 1):
                     try:
-                        # Create a container for each Messier object
                         col_info, col_img = st.columns([0.7, 0.3], gap="medium")
                         
                         with col_info:
@@ -722,10 +733,7 @@ elif st.session_state.get('authentication_status'):
                                 st.markdown("*Aucune information trouvée dans Catalogue Messier.pdf pour cet objet.*")
                         
                         with col_img:
-                            # Display image and provide a zoom button
                             st.image(img_data['image_path'], caption=img_data['source'])
-                            if st.button("Agrandir", key=f"zoom_{img_data['messier_label']}"):
-                                show_messier_image(img_data['image_path'], img_data['source'])
                         
                         st.markdown("---")
                     except Exception as e:

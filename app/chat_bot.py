@@ -285,24 +285,24 @@ def load_messier_images_from_assets(max_images: int = 5) -> list:
     
     return images_data
 
-def fetch_messier_page_top10() -> str:
+def fetch_messier_page_top10() -> tuple:
     """Fetch the public Messier page and extract the 10 objects displayed in the table."""
     global MESSIER_PAGE_CACHE
 
     now = datetime.now()
     if MESSIER_PAGE_CACHE['data'] is not None and MESSIER_PAGE_CACHE['timestamp'] is not None:
         if (now - MESSIER_PAGE_CACHE['timestamp']).total_seconds() < MESSIER_PAGE_CACHE['refresh_interval']:
-            return MESSIER_PAGE_CACHE['data']
+            return MESSIER_PAGE_CACHE['data'], MESSIER_PAGE_CACHE.get('rows', [])
 
     url = "http://messier.astronomie-pointedudiable.fr/"
     try:
         data = _fetch_messier_catalog_data()
         if not data:
-            return "Impossible de récupérer les données Messier (catalogue-data.js indisponible)."
+            return "Impossible de récupérer les données Messier (catalogue-data.js indisponible).", []
 
         filtered = [obj for obj in data if _is_visible_by_site(obj.get("mag"), obj.get("saison"))]
         if not filtered:
-            return "Impossible de récupérer les objets Messier (aucun visible selon les filtres)."
+            return "Impossible de récupérer les objets Messier (aucun visible selon les filtres).", []
 
         def mag_sort_value(obj):
             try:
@@ -315,10 +315,14 @@ def fetch_messier_page_top10() -> str:
         for obj in sorted_objects[:10]:
             objects.append({
                 "messier": obj.get("messier", ""),
+                "ngc": obj.get("ngc"),
                 "objet": _get_french_label(obj.get("objet", "")),
                 "saison": _get_french_label(obj.get("saison", "")),
                 "mag": obj.get("mag", "?"),
                 "constellation": _get_constellation_display(obj),
+                "ra": obj.get("ra"),
+                "dec": obj.get("dec"),
+                "dimension": obj.get("dimension"),
                 "visible": "O",
             })
 
@@ -332,10 +336,11 @@ def fetch_messier_page_top10() -> str:
 
         content = "\n".join(lines)
         MESSIER_PAGE_CACHE['data'] = content
+        MESSIER_PAGE_CACHE['rows'] = objects
         MESSIER_PAGE_CACHE['timestamp'] = now
-        return content
+        return content, objects
     except Exception as e:
-        return f"Impossible de récupérer la page Messier: {e}"
+        return f"Impossible de récupérer la page Messier: {e}", []
 
 def parse_messier_page_top10(messier_page_content: str) -> list:
     """Parse the 10 Messier objects from the fetched page content."""
@@ -384,20 +389,111 @@ def _extract_messier_number(label: str):
     except ValueError:
         return None
 
+def _visibility_label(mag_value) -> str:
+    try:
+        mag = float(mag_value)
+    except (TypeError, ValueError):
+        return "Difficile"
+    if mag <= 4:
+        return "Facile"
+    if mag <= 6:
+        return "Modérée"
+    return "Difficile"
+
+def _photographiable_label(obj_type: str) -> str:
+    if not obj_type:
+        return "Oui"
+    lowered = obj_type.lower()
+    if "étoile double" in lowered:
+        return "Non"
+    return "Oui"
+
+def _describe_object(obj_type: str) -> str:
+    if not obj_type:
+        return "Objet du catalogue Messier, intéressant pour l’observation visuelle."
+    lowered = obj_type.lower()
+    if "nébuleuse" in lowered:
+        return "Nuage de gaz et de poussières, souvent riche en détails visibles à faible grossissement."
+    if "galaxie" in lowered:
+        return "Galaxie lointaine dont la structure devient plus visible sous un ciel sombre."
+    if "amas ouvert" in lowered:
+        return "Amas d’étoiles jeunes et dispersées, agréable à observer au grand champ."
+    if "amas globulaire" in lowered:
+        return "Amas sphérique très dense d’étoiles anciennes, spectaculaire à grossissement moyen."
+    if "reste de supernova" in lowered:
+        return "Vestige d’une explosion stellaire, souvent riche en filaments ténus."
+    if "étoile double" in lowered:
+        return "Système de deux étoiles visibles à l’oculaire avec une bonne résolution."
+    return "Objet du catalogue Messier, intéressant pour l’observation visuelle."
+
+def _has_interest(obj_type: str, mag_value, dimension_value: str) -> bool:
+    try:
+        mag = float(mag_value)
+    except (TypeError, ValueError):
+        mag = None
+    if mag is not None and mag <= 3:
+        return True
+    if obj_type and ("nébuleuse" in obj_type.lower() or "galaxie" in obj_type.lower()):
+        return True
+    if dimension_value and any(ch.isdigit() for ch in str(dimension_value)):
+        return True
+    return False
+
+def _interest_text(obj_type: str) -> str:
+    if not obj_type:
+        return "Objet emblématique et facile à repérer au grand champ."
+    lowered = obj_type.lower()
+    if "nébuleuse" in lowered:
+        return "Contrastes intéressants et structures fines, idéal avec un filtre adapté."
+    if "galaxie" in lowered:
+        return "Intéressante pour comparer le halo et la structure sous un ciel sombre."
+    if "amas ouvert" in lowered:
+        return "Bel aspect en grand champ, parfait pour la photographie."
+    if "amas globulaire" in lowered:
+        return "Cœur dense spectaculaire, bon test de résolution."
+    if "reste de supernova" in lowered:
+        return "Structures filamenteuses remarquables, meilleur rendu avec filtre OIII."
+    return "Objet emblématique et facile à repérer au grand champ."
+
 def format_messier_page_response(rows: list) -> str:
-    """Format Messier objects from the public table in display order."""
+    """Format Messier objects using the requested descriptive sheet."""
     if not rows:
         return "Je n'ai pas pu extraire les 10 objets Messier depuis la page publique."
 
-    lines = [
-        "Objets Messier visibles ce soir (top 10 du tableau public) :",
-        ""
-    ]
-    for idx, obj in enumerate(rows, 1):
-        lines.append(
-            f"{idx}. {obj['messier']} — {obj['objet']} | Saison: {obj['saison']} | Mag: {obj['mag']} | Constellation: {obj['constellation']} | Visible: {obj['visible']}"
-        )
-    return "\n".join(lines)
+    blocks = []
+    for obj in rows:
+        messier_label = obj.get("messier", "M-XX")
+        ngc_value = obj.get("ngc") or "—"
+        obj_type = obj.get("objet", "—")
+        ra = obj.get("ra") or "—"
+        dec = obj.get("dec") or "—"
+        constellation = obj.get("constellation") or "—"
+        dimension = obj.get("dimension") or "—"
+        magnitude = obj.get("mag") if obj.get("mag") is not None else "—"
+        visibility = _visibility_label(obj.get("mag"))
+        photo = _photographiable_label(obj_type)
+        description = _describe_object(obj_type)
+
+        block_lines = [
+            f"Nom et numéro : {messier_label} (NGC {ngc_value})",
+            f"Type d’objet : {obj_type}",
+            "Coordonnées célestes :",
+            f"Ascension droite : {ra}",
+            f"Déclinaison : {dec}",
+            f"Constellation : {constellation}",
+            f"Taille apparente : {dimension}",
+            f"Magnitude : {magnitude}",
+            f"Visibilité : {visibility}",
+            f"Photographiable : {photo}",
+            f"Description : {description}",
+        ]
+
+        if _has_interest(obj_type, obj.get("mag"), dimension):
+            block_lines.append(f"Intérêt : {_interest_text(obj_type)}")
+
+        blocks.append("\n".join(block_lines))
+
+    return "\n\n".join(blocks)
 
 def build_messier_images_for_rows(rows: list) -> list:
     """Return image entries matching Messier rows."""
@@ -951,17 +1047,16 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     messier_docs = []
 
     if should_fetch_messier_page(user_input):
-        messier_page_content = fetch_messier_page_top10()
+        messier_page_content, messier_page_rows = fetch_messier_page_top10()
         print(f"DEBUG - Messier page data fetched: {messier_page_content[:300]}...")
         if messier_page_content and "Impossible" not in messier_page_content:
             messier_page_doc = create_messier_page_document(messier_page_content)
             print("INFO - Messier page document created")
             # If the question is about visible Messier objects tonight, respond directly
-            rows = parse_messier_page_top10(messier_page_content)
-            if rows:
-                response_text = format_messier_page_response(rows)
+            if messier_page_rows:
+                response_text = format_messier_page_response(messier_page_rows)
                 documents = [messier_page_doc]
-                messier_images = build_messier_images_for_rows(rows)
+                messier_images = build_messier_images_for_rows(messier_page_rows)
                 return response_text, documents, messier_images
 
     
