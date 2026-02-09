@@ -1182,7 +1182,7 @@ if __name__ == '__main__':
         # Essaye de récupérer une réponse (avec gestion des erreurs)
         while True:
             try:
-                response, documents = get_response(user_input, chat_history, vector, chain)
+                response, documents, messier_images = get_response(user_input, chat_history, vector, chain)
             except Exception as e:
                 print(f"Erreur: {e}")
                 continue

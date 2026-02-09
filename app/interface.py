@@ -437,7 +437,7 @@ elif st.session_state.get('authentication_status'):
                 
                 if selected_history and st.button("Charger cette conversation"):
                     try:
-                        history_file_path = user_history_path / selected_history
+                        history_file_path = user_history_path / f"{selected_history}.json"
                         with open(history_file_path, "r", encoding="utf-8") as f:
                             data = json.load(f)
                             st.session_state.messages = data.get("messages", [])
