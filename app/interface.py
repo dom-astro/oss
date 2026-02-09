@@ -458,7 +458,7 @@ elif st.session_state.get('authentication_status'):
                 
                 if selected_history and st.button("Charger cette conversation"):
                     try:
-                        history_file_path = user_history_path / selected_history
+                        history_file_path = user_history_path / f"{selected_history}.json"
                         with open(history_file_path, "r", encoding="utf-8") as f:
                             data = json.load(f)
                             st.session_state.messages = data.get("messages", [])
@@ -623,7 +623,7 @@ elif st.session_state.get('authentication_status'):
         "Quel est le programme ce soir?",
         "Quelle est la météo actuelle?",
         "Comment utiliser le télescope?",
-        "Quels objets peut-on observer?"
+        "Quels sont les objets de Messier visibles ce soir?"
     ]
     
     # Variable pour tracker si une question suggérée est cliquée
@@ -684,7 +684,24 @@ elif st.session_state.get('authentication_status'):
 
         # 4) Réponse finale : remplace le placeholder par le contenu réel
         with assistant_slot.chat_message("assistant"):
-            st.write(response)
+            rendered_messier_blocks = False
+            if messier_images:
+                blocks = [b.strip() for b in response.split("\n\n") if b.strip()]
+                if blocks:
+                    for idx, block in enumerate(blocks, 1):
+                        col_info, col_img = st.columns([0.7, 0.3], gap="medium")
+                        with col_info:
+                            st.markdown(block.replace("\n", "  \n"))
+                        with col_img:
+                            if idx <= len(messier_images):
+                                img_data = messier_images[idx - 1]
+                                st.image(img_data['image_path'], caption=img_data['source'])
+                        if idx < len(blocks):
+                            st.markdown("---")
+                    rendered_messier_blocks = True
+
+            if not rendered_messier_blocks:
+                st.write(response)
 
             # Display Messier page top 10 if available
             messier_page_data = None
@@ -719,15 +736,13 @@ elif st.session_state.get('authentication_status'):
                 else:
                     st.info("Aucun objet Messier n'a été extrait de la page publique.")
             
-            # Display Messier images if available
-            if messier_images:
+            # Display Messier images if available (fallback if not rendered alongside blocks)
+            if messier_images and not rendered_messier_blocks:
                 st.markdown("---")
                 st.subheader("🔭 Photographies des objets Messier")
                 
-                # Display each image with its information
                 for idx, img_data in enumerate(messier_images, 1):
                     try:
-                        # Create a container for each Messier object
                         col_info, col_img = st.columns([0.7, 0.3], gap="medium")
                         
                         with col_info:
@@ -739,7 +754,6 @@ elif st.session_state.get('authentication_status'):
                                 st.markdown("*Aucune information trouvée dans Catalogue Messier.pdf pour cet objet.*")
                         
                         with col_img:
-                            # Display image at original file size (no resizing)
                             st.image(img_data['image_path'], caption=img_data['source'])
                         
                         st.markdown("---")
