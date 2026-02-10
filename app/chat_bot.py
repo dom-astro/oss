@@ -457,7 +457,7 @@ def _interest_text(obj_type: str) -> str:
     return "Objet emblématique et facile à repérer au grand champ."
 
 def format_messier_page_response(rows: list) -> str:
-    """Format Messier objects using the requested descriptive sheet."""
+    """Format Messier objects using the compact requested format."""
     if not rows:
         return "Je n'ai pas pu extraire les 10 objets Messier depuis la page publique."
 
@@ -475,22 +475,22 @@ def format_messier_page_response(rows: list) -> str:
         photo = _photographiable_label(obj_type)
         description = _describe_object(obj_type)
 
-        block_lines = [
-            f"Nom et numéro : {messier_label} (NGC {ngc_value})",
-            f"Type d’objet : {obj_type}",
-            "Coordonnées célestes :",
-            f"Ascension droite : {ra}",
-            f"Déclinaison : {dec}",
-            f"Constellation : {constellation}",
-            f"Taille apparente : {dimension}",
-            f"Magnitude : {magnitude}",
-            f"Visibilité : {visibility}",
-            f"Photographiable : {photo}",
-            f"Description : {description}",
-        ]
+        visibility_line = "Visibilité: Ce soir (voir SkyWatch pour les horaires)."
+        if visibility in {"Facile", "Modérée", "Difficile"}:
+            visibility_line = f"Visibilité: {visibility} (selon la magnitude)."
 
-        if _has_interest(obj_type, obj.get("mag"), dimension):
-            block_lines.append(f"Intérêt : {_interest_text(obj_type)}")
+        conseil = "Observable à l’œil nu ou aux jumelles." if visibility == "Facile" else "Observer avec un instrument adapté."
+        if photo == "Oui":
+            conseil = f"{conseil} Idéal pour la photo grand champ." if "grand champ" not in conseil else conseil
+
+        block_lines = [
+            f"{messier_label} - {obj_type}",
+            f"Type: {obj_type} | Constellation : {constellation} | Magnitude : {magnitude} | Taille : {dimension}",
+            visibility_line,
+            f"Photographiable : {photo}",
+            f"Conseil: {conseil}",
+            f"Description: {description}",
+        ]
 
         blocks.append("\n".join(block_lines))
 
