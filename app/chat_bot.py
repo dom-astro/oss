@@ -914,7 +914,8 @@ def create_prompt(reasoning_mode=False):
           - **Prochains objets intéressants** : [Ex. : *"M81/M82 seront visibles après minuit."*].
           - **Source des données** : Informations du document "Catalogue Messier.pdf" + conditions d'observation de SkyWatch.
         
-        Si l'utilisateur pose des questions sur quelque chose autre que l'observatoire, tu refuses de répondre.
+        Si l'utilisateur pose une question qui n'a rien à voir avec l'astronomie ou l'observatoire, réponds d'abord par une blague courte sur l'astronomie, puis ajoute explicitement :
+        "Je ne peux répondre qu'aux questions sur l'astronomie."
         Répond toujours en français."""
     
     # Ajouter les instructions de raisonnement détaillé si le mode est activé
