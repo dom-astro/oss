@@ -137,6 +137,23 @@ def should_fetch_messier_page(user_input: str) -> bool:
         "visible" in user_lower or "visibles" in user_lower or "ce soir" in user_lower
     )
 
+def should_fetch_program_observation(user_input: str) -> bool:
+    """Check if the user is asking for tonight's observation program."""
+    user_lower = user_input.lower()
+    program_phrases = [
+        "programme ce soir",
+        "programme de ce soir",
+        "quel est le programme ce soir",
+        "que peut-on observer ce soir",
+        "qu'est-ce qu'on peut voir ce soir",
+        "quels objets sont visibles ce soir",
+        "que faire ce soir",
+        "quelles observations sont prévues",
+        "qu'allons-nous observer ce soir",
+        "programme d'observation",
+    ]
+    return any(phrase in user_lower for phrase in program_phrases)
+
 def _get_french_label(value: str) -> str:
     if not value:
         return ""
@@ -495,6 +512,24 @@ def format_messier_page_response(rows: list) -> str:
         blocks.append("\n".join(block_lines))
 
     return "\n\n".join(blocks)
+
+def format_messier_program_rows(rows: list, max_items: int = 5) -> str:
+    """Format Messier rows for the program section (short list)."""
+    if not rows:
+        return ""
+
+    lines = []
+    for obj in rows[:max_items]:
+        messier_label = obj.get("messier", "M-XX")
+        obj_type = obj.get("objet", "—")
+        constellation = obj.get("constellation", "—")
+        magnitude = obj.get("mag") if obj.get("mag") is not None else "—"
+        conseil = "Facile" if _visibility_label(obj.get("mag")) == "Facile" else "Instrument conseille"
+        lines.append(
+            f"- {messier_label} : {obj_type} | {constellation} | Mag {magnitude} | Conseil: {conseil}"
+        )
+
+    return "\n".join(lines)
 
 def build_messier_images_for_rows(rows: list) -> list:
     """Return image entries matching Messier rows."""
@@ -1044,22 +1079,26 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
     
     # Détecte si la question porte sur les objets Messier
     needs_messier = should_use_messier_catalog(user_input)
+    is_program_question = should_fetch_program_observation(user_input)
 
     messier_images = []  # Will store loaded image paths
     messier_docs = []
+    program_messier_snippet = ""
 
-    if should_fetch_messier_page(user_input):
+    if should_fetch_messier_page(user_input) or is_program_question:
         messier_page_content, messier_page_rows = fetch_messier_page_top10()
         print(f"DEBUG - Messier page data fetched: {messier_page_content[:300]}...")
         if messier_page_content and "Impossible" not in messier_page_content:
             messier_page_doc = create_messier_page_document(messier_page_content)
             print("INFO - Messier page document created")
             # If the question is about visible Messier objects tonight, respond directly
-            if messier_page_rows:
+            if should_fetch_messier_page(user_input) and messier_page_rows:
                 response_text = format_messier_page_response(messier_page_rows)
                 documents = [messier_page_doc]
                 messier_images = build_messier_images_for_rows(messier_page_rows)
                 return response_text, documents, messier_images
+            if is_program_question and messier_page_rows:
+                program_messier_snippet = format_messier_program_rows(messier_page_rows)
 
     
     # Prépare l'input amélioré avec les indicateurs de mode
@@ -1080,6 +1119,14 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
             "pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
         )
         print("INFO - Enhanced input to search Messier catalog")
+
+    if is_program_question and program_messier_snippet:
+        enhanced_input = (
+            f"{enhanced_input}\n\n[IMPORTANT: Pour la section 'Objets de Messier (5 max)', "
+            "utilise la liste ci-dessous issue de la page publique]"
+            f"\n{program_messier_snippet}"
+        )
+        print("INFO - Enhanced input with Messier program list")
 
     if messier_page_content and "Impossible" not in messier_page_content:
         enhanced_input = (
@@ -1113,6 +1160,13 @@ Note: Si la question concerne la météo, les conditions du ciel ou le programme
             skywatch_enhanced_input = (
                 f"{skywatch_enhanced_input}\n\n[IMPORTANT: Utilise le document 'Catalogue Messier.pdf' "
                 "pour obtenir les informations sur les objets Messier]"
+            )
+
+        if is_program_question and program_messier_snippet:
+            skywatch_enhanced_input = (
+                f"{skywatch_enhanced_input}\n\n[IMPORTANT: Pour la section 'Objets de Messier (5 max)', "
+                "utilise la liste ci-dessous issue de la page publique]"
+                f"\n{program_messier_snippet}"
             )
 
         if messier_page_content and "Impossible" not in messier_page_content:
