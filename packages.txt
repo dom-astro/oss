@@ -5,3 +5,5 @@ libxrender-dev
 liblz4-dev
 libglib2.0-0
 libgomp1
+libffi7
+libpcre3
