@@ -3,5 +3,7 @@ libsm6
 libxext6
 libxrender-dev
 liblz4-dev
-libglib2.0-0
+libglib2.0-data
+shared-mime-info
+xdg-user-dirs
 libgomp1
