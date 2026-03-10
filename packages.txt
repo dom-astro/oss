@@ -7,5 +7,5 @@ libglib2.0-data
 shared-mime-info
 xdg-user-dirs
 libgomp1
-libgl1-mesa-glx
+libgl1
 libxrender1
