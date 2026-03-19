@@ -34,39 +34,14 @@ SKYWATCH_CACHE = {
     'refresh_interval': 300  # Intervalle de rafraîchissement en secondes (5 minutes)
 }
 
-# Cache pour le catalogue Messier (page publique)
+# Cache pour le Top 10 des objets Messier visibles (page publique).
+# Même mécanique que SKYWATCH_CACHE : TTL de 5 minutes pour limiter
+# les appels réseau au NAS hébergeant catalogue-data.js.
 MESSIER_PAGE_CACHE = {
-    'data': None,
-    'timestamp': None,
-    'refresh_interval': 300  # 5 minutes en secondes
-}
-
-# Cache pour le catalogue Messier (page publique)
-MESSIER_PAGE_CACHE = {
-    'data': None,
-    'timestamp': None,
-    'refresh_interval': 300  # 5 minutes en secondes
-}
-
-# Cache pour le catalogue Messier (page publique)
-MESSIER_PAGE_CACHE = {
-    'data': None,
-    'timestamp': None,
-    'refresh_interval': 300  # 5 minutes en secondes
-}
-
-# Cache pour le catalogue Messier (page publique)
-MESSIER_PAGE_CACHE = {
-    'data': None,
-    'timestamp': None,
-    'refresh_interval': 300  # 5 minutes en secondes
-}
-
-# Cache pour le catalogue Messier (page publique)
-MESSIER_PAGE_CACHE = {
-    'data': None,
-    'timestamp': None,
-    'refresh_interval': 300  # 5 minutes en secondes
+    'data': None,       # Chaîne de texte formatée du Top 10 (ou None si non chargé)
+    'rows': [],         # Liste de dicts des 10 objets (utilisée pour l'affichage)
+    'timestamp': None,  # datetime de la dernière récupération réussie
+    'refresh_interval': 300  # TTL en secondes (5 minutes)
 }
 
 def model_and_embedding_function(api_key):
@@ -131,13 +106,46 @@ def should_use_messier_catalog(user_input: str) -> bool:
     return should_use
 
 def should_fetch_messier_page(user_input: str) -> bool:
-    """Check if the question is about visible Messier objects tonight."""
+    """
+    Détermine si la question porte spécifiquement sur les objets Messier
+    visibles ce soir, ce qui nécessite de consulter la page publique du catalogue
+    plutôt que le PDF statique.
+
+    Combine deux conditions :
+    1. La question concerne le catalogue Messier (should_use_messier_catalog).
+    2. Elle mentionne la visibilité ou la soirée ("visible", "visibles", "ce soir").
+
+    Args:
+        user_input (str): Le texte de la question de l'utilisateur.
+
+    Returns:
+        bool: True si les deux conditions sont réunies, False sinon.
+    """
     user_lower = user_input.lower()
     return should_use_messier_catalog(user_input) and (
         "visible" in user_lower or "visibles" in user_lower or "ce soir" in user_lower
     )
 
 def _get_french_label(value: str) -> str:
+    """
+    Extrait le libellé français d'une chaîne bilangue du format "English/Français".
+
+    Dans le fichier catalogue-data.js, certains champs (comme "objet" ou "saison")
+    sont encodés sous la forme "English label/Libellé français". Cette fonction
+    retourne la partie droite (française) si le séparateur "/" est présent,
+    ou la valeur brute sinon.
+
+    Exemples :
+        "Open Cluster/Amas ouvert"  →  "Amas ouvert"
+        "Winter/Hiver"              →  "Hiver"
+        "Nébuleuse"                 →  "Nébuleuse"  (pas de "/")
+
+    Args:
+        value (str): Valeur brute issue du catalogue JS.
+
+    Returns:
+        str: Libellé français (ou valeur entière si pas de "/"), chaîne vide si None.
+    """
     if not value:
         return ""
     parts = str(value).split("/")
@@ -146,7 +154,25 @@ def _get_french_label(value: str) -> str:
     return str(value).strip()
 
 def _season_for_date(date_value: datetime) -> str:
-    month = date_value.month - 1
+    """
+    Retourne la saison astronomique française correspondant à une date donnée.
+
+    Le découpage est basé sur les mois calendaires (approximation courante) :
+        Décembre, Janvier, Février  →  Hiver
+        Mars, Avril, Mai            →  Printemps
+        Juin, Juillet, Août         →  Été
+        Septembre, Octobre, Novembre→  Automne
+
+    Note : on soustrait 1 au mois pour utiliser un index de 0 à 11,
+    ce qui simplifie la condition du mois de décembre (index 11 → 11 % 12 = 11).
+
+    Args:
+        date_value (datetime): La date à analyser.
+
+    Returns:
+        str: L'une des valeurs "Hiver", "Printemps", "Été" ou "Automne".
+    """
+    month = date_value.month - 1  # mois 0-indexé (0=Jan … 11=Déc)
     if month in (11, 0, 1):
         return "Hiver"
     if 2 <= month <= 4:
@@ -156,6 +182,24 @@ def _season_for_date(date_value: datetime) -> str:
     return "Automne"
 
 def _is_visible_by_site(mag_value, saison_value: str) -> bool:
+    """
+    Détermine si un objet Messier est considéré comme observable depuis le site
+    de l'observatoire, selon deux critères indépendants :
+
+    1. **Magnitude** : l'objet doit avoir une magnitude ≤ 6 (limite de l'œil nu
+       sous un ciel correct, seuil choisi pour garantir une observabilité minimale).
+    2. **Saison** : si un champ saison est renseigné dans le catalogue, il doit
+       correspondre à la saison astronomique actuelle (calculée par _season_for_date).
+       Si le champ est vide, le critère saison est ignoré.
+
+    Args:
+        mag_value: Magnitude apparente de l'objet (str ou float convertible).
+        saison_value (str): Valeur de saison issue du catalogue JS, potentiellement
+                            au format "English/Français" (ex. "Winter/Hiver").
+
+    Returns:
+        bool: True si l'objet est à la fois suffisamment brillant ET de saison.
+    """
     if mag_value is None:
         return False
     try:
@@ -163,7 +207,7 @@ def _is_visible_by_site(mag_value, saison_value: str) -> bool:
     except (TypeError, ValueError):
         return False
     if not saison_value:
-        return mag_ok
+        return mag_ok  # Pas de contrainte saisonnière : critère magnitude seul
 
     label = _get_french_label(saison_value).lower()
     today_season = _season_for_date(datetime.now())
@@ -179,14 +223,43 @@ def _is_visible_by_site(mag_value, saison_value: str) -> bool:
     return mag_ok
 
 def _get_constellation_display(obj: dict) -> str:
+    """
+    Retourne le nom de constellation le plus lisible disponible pour un objet Messier.
+
+    Le catalogue JS peut stocker le nom de constellation sous plusieurs clés selon
+    la version des données. On essaie les clés dans l'ordre de préférence :
+        1. "nom_francais"          → nom français explicite (ex. "Orion")
+        2. "latin_name_nom_latin"  → nom latin (ex. "Orion")
+        3. "const"                 → abréviation IAU (ex. "Ori")
+
+    Args:
+        obj (dict): Dictionnaire représentant un objet du catalogue Messier.
+
+    Returns:
+        str: Nom de constellation (chaîne vide si aucune clé n'est trouvée).
+    """
     return obj.get("nom_francais") or obj.get("latin_name_nom_latin") or obj.get("const") or ""
 
 def _fetch_messier_catalog_data() -> list:
+    """
+    Télécharge et parse le fichier JavaScript catalogue-data.js hébergé sur le NAS.
+
+    Le fichier contient une déclaration JS de la forme :
+        const messierData = [ {...}, {...}, ... ];
+
+    On extrait le tableau JSON embarqué à l'aide d'une expression régulière,
+    puis on le désérialise avec json.loads.
+
+    Returns:
+        list: Liste de dicts représentant les 110 objets Messier,
+              ou liste vide en cas d'erreur (réseau, parsing, etc.).
+    """
     url = "http://nas-gdl2.synology.me/messier/catalogue-data.js"
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         text = response.text
+        # Extrait le tableau JS entre crochets (flags=re.S pour matcher les sauts de ligne)
         match = re.search(r"const\s+messierData\s*=\s*(\[.*\])\s*;?", text, flags=re.S)
         if not match:
             return []
@@ -196,25 +269,46 @@ def _fetch_messier_catalog_data() -> list:
         return []
 
 def get_messier_context(vector, doc_id: str, max_chunks: int = 110):
-    """Retrieve relevant chunks from Catalogue Messier by doc_id (increased significantly for all objects)."""
+    """
+    Récupère tous les chunks FAISS appartenant au document "Catalogue Messier"
+    identifié par son doc_id.
+
+    Stratégie en deux passes :
+    1. **Scan direct du docstore** : parcourt tous les vecteurs et filtre ceux dont
+       la métadonnée "doc_id" correspond. C'est la méthode la plus fiable car elle
+       ne dépend pas de la similarité sémantique.
+    2. **Fallback par similarité** : si le scan direct ne retourne rien (index vide
+       ou metadata absente), effectue une recherche sémantique approximative sur
+       "Catalogue Messier objets M" et filtre les résultats par doc_id.
+
+    Args:
+        vector: Base de données vectorielle FAISS (peut être None).
+        doc_id (str): UUID du document Messier tel qu'enregistré dans document_index.json.
+        max_chunks (int): Nombre maximum de chunks à retourner (défaut 110,
+                          soit un chunk par objet Messier au maximum).
+
+    Returns:
+        list: Liste de Documents LangChain (page_content + metadata),
+              liste vide si vector est None, doc_id vide, ou en cas d'erreur.
+    """
     if vector is None or not doc_id:
         return []
 
     try:
-        # Scan docstore for chunks of the Messier document - get as many as needed
+        # Passe 1 : scan direct — on parcourt le mapping index → docstore_id
         docs = []
         for ds_id in vector.index_to_docstore_id.values():
             doc = vector.docstore.search(ds_id)
             if getattr(doc, "metadata", {}).get("doc_id") == doc_id:
                 docs.append(doc)
-                if len(docs) >= max_chunks:  # Limit to 110 to cover all Messier objects
+                if len(docs) >= max_chunks:
                     break
         
         if docs:
             print(f"INFO - Retrieved {len(docs)} chunks from Catalogue Messier")
             return docs
         
-        # Fallback: try similarity search
+        # Passe 2 : fallback par similarité sémantique
         try:
             candidates = vector.similarity_search("Catalogue Messier objets M", k=50)
             messier_docs = [doc for doc in candidates if getattr(doc, "metadata", {}).get("doc_id") == doc_id]
@@ -287,10 +381,31 @@ def load_messier_images_from_assets(max_images: int = 5) -> list:
     return images_data
 
 def fetch_messier_page_top10() -> tuple:
-    """Fetch the public Messier page and extract the 10 objects displayed in the table."""
+    """
+    Retourne les 10 objets Messier les plus faciles à observer ce soir,
+    triés par magnitude croissante (les plus brillants en premier).
+
+    Processus :
+    1. Vérifie si le cache MESSIER_PAGE_CACHE est encore valide (< 5 min).
+       Si oui, retourne directement les données mises en cache.
+    2. Charge le catalogue complet via _fetch_messier_catalog_data().
+    3. Filtre les objets selon _is_visible_by_site() : magnitude ≤ 6 ET saison courante.
+    4. Trie par magnitude croissante et retient les 10 premiers.
+    5. Construit une chaîne de texte formatée (pour injection dans le prompt LLM)
+       et met à jour le cache.
+
+    Returns:
+        tuple:
+            - str  : Texte formaté "LISTE DES 10 OBJETS MESSIER AFFICHÉS…"
+                     ou message d'erreur si le catalogue est indisponible.
+            - list : Liste de dicts (messier, ngc, objet, saison, mag,
+                     constellation, ra, dec, dimension, visible),
+                     ou liste vide en cas d'échec.
+    """
     global MESSIER_PAGE_CACHE
 
     now = datetime.now()
+    # Retour immédiat si les données en cache sont encore fraîches
     if MESSIER_PAGE_CACHE['data'] is not None and MESSIER_PAGE_CACHE['timestamp'] is not None:
         if (now - MESSIER_PAGE_CACHE['timestamp']).total_seconds() < MESSIER_PAGE_CACHE['refresh_interval']:
             return MESSIER_PAGE_CACHE['data'], MESSIER_PAGE_CACHE.get('rows', [])
@@ -306,6 +421,7 @@ def fetch_messier_page_top10() -> tuple:
             return "Impossible de récupérer les objets Messier (aucun visible selon les filtres).", []
 
         def mag_sort_value(obj):
+            """Clé de tri : retourne la magnitude en float, ou 0.0 si la conversion échoue."""
             try:
                 return float(obj.get("mag", 0))
             except (TypeError, ValueError):
@@ -344,15 +460,31 @@ def fetch_messier_page_top10() -> tuple:
         return f"Impossible de récupérer la page Messier: {e}", []
 
 def parse_messier_page_top10(messier_page_content: str) -> list:
-    """Parse the 10 Messier objects from the fetched page content."""
+    """
+    Parse la chaîne de texte générée par fetch_messier_page_top10() et en extrait
+    une liste de dicts structurés, utilisables pour l'affichage en tableau.
+
+    La chaîne attendue contient des lignes numérotées au format :
+        "N. MXX | Type | Saison: X | Mag: X.X | Constellation: X | Visible: O"
+
+    Args:
+        messier_page_content (str): Texte brut retourné par fetch_messier_page_top10().
+
+    Returns:
+        list: Liste de dicts avec les clés "messier", "objet", "saison",
+              "mag", "constellation", "visible". Liste vide si le contenu
+              est absent ou ne contient pas l'en-tête attendu.
+    """
     if not messier_page_content or "LISTE DES 10 OBJETS" not in messier_page_content:
         return []
 
     rows = []
     for line in messier_page_content.splitlines():
+        # Détecte les lignes numérotées de 1. à 10.
         if line.strip().startswith(tuple(str(i) + "." for i in range(1, 11))):
             parts = [p.strip() for p in line.split("|")]
             if len(parts) >= 6:
+                # Sépare le numéro de ligne ("1.") du label Messier ("M 42")
                 idx_and_m = parts[0].split(".", 1)
                 messier_label = idx_and_m[1].strip() if len(idx_and_m) > 1 else parts[0].strip()
                 rows.append({
@@ -366,6 +498,15 @@ def parse_messier_page_top10(messier_page_content: str) -> list:
     return rows
 
 def _parse_magnitude(value: str):
+    """
+    Convertit une chaîne de magnitude en float, en gérant la virgule décimale.
+
+    Args:
+        value (str): Magnitude sous forme de chaîne (ex. "6,4" ou "6.4").
+
+    Returns:
+        float | None: Valeur numérique, ou None si la conversion échoue.
+    """
     if not value:
         return None
     try:
@@ -374,12 +515,37 @@ def _parse_magnitude(value: str):
         return None
 
 def _is_visible(value: str) -> bool:
+    """
+    Indique si une valeur de visibilité booléenne est considérée comme vraie.
+
+    Accepte plusieurs représentations courantes : "oui", "yes", "true", "1", "o".
+    La comparaison est insensible à la casse et aux espaces.
+
+    Args:
+        value (str): Valeur brute du champ visibilité.
+
+    Returns:
+        bool: True si la valeur correspond à "visible/oui", False sinon.
+    """
     if not value:
         return False
     normalized = value.strip().lower()
     return normalized in {"oui", "yes", "true", "1", "o"}
 
 def _extract_messier_number(label: str):
+    """
+    Extrait le numéro entier d'un label Messier sous divers formats.
+
+    Formats reconnus : "M31", "M 31", "M-31", "M-031", "M 031", etc.
+    Le pattern regex est insensible à la casse et tolère des espaces ou tirets
+    entre "M" et les chiffres.
+
+    Args:
+        label (str): Label brut (ex. "M-042", "M 1", "m31").
+
+    Returns:
+        int | None: Numéro Messier (1–110), ou None si non trouvé ou invalide.
+    """
     if not label:
         return None
     match = re.search(r"\bM\s*-?\s*(\d{1,3})\b", label, flags=re.IGNORECASE)
@@ -391,6 +557,7 @@ def _extract_messier_number(label: str):
         return None
 
 def _visibility_label(mag_value) -> str:
+    """Convertit une magnitude en étiquette : 'Facile' (≤4), 'Modérée' (≤6) ou 'Difficile'."""
     try:
         mag = float(mag_value)
     except (TypeError, ValueError):
@@ -402,6 +569,7 @@ def _visibility_label(mag_value) -> str:
     return "Difficile"
 
 def _photographiable_label(obj_type: str) -> str:
+    """Retourne 'Non' pour les étoiles doubles (peu adaptées à l'astrophoto), 'Oui' sinon."""
     if not obj_type:
         return "Oui"
     lowered = obj_type.lower()
@@ -410,6 +578,47 @@ def _photographiable_label(obj_type: str) -> str:
     return "Oui"
 
 def _describe_object(obj_type: str) -> str:
+    """
+    Retourne une courte description visuelle adaptée au type d'objet Messier.
+
+    Ces descriptions sont affichées dans la réponse du chatbot pour donner à
+    l'observateur un aperçu de ce qu'il verra à l'oculaire.
+
+    Args:
+        obj_type (str): Type de l'objet en français (ex. "Galaxie", "Amas ouvert").
+
+    Returns:
+        str: Phrase descriptive adaptée au type, ou description générique si inconnu.
+    """
+    if not obj_type:
+        return "Objet du catalogue Messier, intéressant pour l'observation visuelle."
+    lowered = obj_type.lower()
+    if "nébuleuse" in lowered:
+        return "Nuage de gaz et de poussières, souvent riche en détails visibles à faible grossissement."
+    if "galaxie" in lowered:
+        return "Galaxie lointaine dont la structure devient plus visible sous un ciel sombre."
+    if "amas ouvert" in lowered:
+        return "Amas d'étoiles jeunes et dispersées, agréable à observer au grand champ."
+    if "amas globulaire" in lowered:
+        return "Amas sphérique très dense d'étoiles anciennes, spectaculaire à grossissement moyen."
+    if "reste de supernova" in lowered:
+        return "Vestige d'une explosion stellaire, souvent riche en filaments ténus."
+    if "étoile double" in lowered:
+        return "Système de deux étoiles visibles à l'oculaire avec une bonne résolution."
+    return "Objet du catalogue Messier, intéressant pour l'observation visuelle."
+def _describe_object(obj_type: str) -> str:
+    """
+    Retourne une courte description visuelle adaptée au type d'objet Messier.
+
+    Ces descriptions sont affichées dans la réponse du chatbot pour donner à
+    l'observateur un aperçu de ce qu'il verra à l'oculaire.
+
+    Args:
+        obj_type (str): Type de l'objet en français (ex. "Galaxie", "Amas ouvert").
+
+    Returns:
+        str: Phrase descriptive adaptée au type, ou description générique si inconnu.
+    """
     if not obj_type:
         return "Objet du catalogue Messier, intéressant pour l’observation visuelle."
     lowered = obj_type.lower()
@@ -428,6 +637,22 @@ def _describe_object(obj_type: str) -> str:
     return "Objet du catalogue Messier, intéressant pour l’observation visuelle."
 
 def _has_interest(obj_type: str, mag_value, dimension_value: str) -> bool:
+    """
+    Détermine si un objet Messier présente un intérêt particulier à mettre en valeur.
+
+    Un objet est jugé "intéressant" si au moins l'une de ces conditions est vraie :
+    - Sa magnitude est ≤ 3 (très brillant, facilement visible à l'œil nu).
+    - Son type est une nébuleuse ou une galaxie (objets visuellement riches).
+    - Son champ "dimension" contient des chiffres (taille angulaire renseignée).
+
+    Args:
+        obj_type (str): Type de l'objet (ex. "Nébuleuse", "Galaxie").
+        mag_value: Magnitude (convertible en float).
+        dimension_value (str): Taille angulaire brute (ex. "90'x40'").
+
+    Returns:
+        bool: True si au moins un critère d'intérêt est satisfait.
+    """
     try:
         mag = float(mag_value)
     except (TypeError, ValueError):
@@ -441,6 +666,19 @@ def _has_interest(obj_type: str, mag_value, dimension_value: str) -> bool:
     return False
 
 def _interest_text(obj_type: str) -> str:
+    """
+    Retourne un texte de mise en valeur adapté au type d'objet Messier.
+
+    Contrairement à _describe_object() qui décrit ce que l'on voit à l'oculaire,
+    cette fonction produit un conseil d'observation (filtre recommandé, intérêt
+    spécifique) pour encourager l'observateur à pointer cet objet.
+
+    Args:
+        obj_type (str): Type de l'objet en français (ex. "Nébuleuse", "Amas globulaire").
+
+    Returns:
+        str: Conseil ou argument d'observation, ou texte générique si type inconnu.
+    """
     if not obj_type:
         return "Objet emblématique et facile à repérer au grand champ."
     lowered = obj_type.lower()
@@ -457,7 +695,26 @@ def _interest_text(obj_type: str) -> str:
     return "Objet emblématique et facile à repérer au grand champ."
 
 def format_messier_page_response(rows: list) -> str:
-    """Format Messier objects using the compact requested format."""
+    """
+    Formate une liste d'objets Messier en blocs de texte markdown pour la réponse du chatbot.
+
+    Pour chaque objet, un bloc multi-lignes est généré avec :
+    - Identifiant et type (ex. "M42 - Nébuleuse")
+    - Caractéristiques : constellation, magnitude, taille angulaire
+    - Niveau de visibilité : Facile / Modérée / Difficile (basé sur la magnitude)
+    - Photographiable : Oui / Non
+    - Conseil d'observation personnalisé
+    - Description visuelle synthétique
+
+    Args:
+        rows (list): Liste de dicts produite par fetch_messier_page_top10().
+                     Chaque dict contient les clés : messier, objet, constellation,
+                     mag, dimension, ngc, ra, dec.
+
+    Returns:
+        str: Blocs markdown séparés par des lignes vides ("\n\n"),
+             ou message d'erreur si rows est vide.
+    """
     if not rows:
         return "Je n'ai pas pu extraire les 10 objets Messier depuis la page publique."
 
@@ -497,7 +754,22 @@ def format_messier_page_response(rows: list) -> str:
     return "\n\n".join(blocks)
 
 def build_messier_images_for_rows(rows: list) -> list:
-    """Return image entries matching Messier rows."""
+    """
+    Retourne les entrées d'images correspondant aux objets d'une liste de rows Messier.
+
+    Charge toutes les images disponibles depuis assets/ (via load_messier_images_from_assets),
+    extrait les numéros Messier des rows, puis filtre et trie les images dans le même
+    ordre que les rows — ce qui garantit l'alignement image/texte dans l'interface.
+
+    Args:
+        rows (list): Liste de dicts produite par fetch_messier_page_top10().
+                     Chaque dict doit contenir la clé "messier" (ex. "M 42").
+
+    Returns:
+        list: Liste de dicts image dans l'ordre des rows, avec les clés :
+              'image_path', 'messier_label', 'messier_number', 'source'.
+              Liste vide si aucune image n'est disponible ou si rows est vide.
+    """
     images = load_messier_images_from_assets()
     if not images:
         return []
@@ -516,7 +788,19 @@ def build_messier_images_for_rows(rows: list) -> list:
     return matched
 
 def create_messier_page_document(messier_page_content: str):
-    """Create a LangChain Document from Messier page data"""
+    """
+    Encapsule le contenu textuel du Top 10 Messier dans un Document LangChain.
+
+    Ce document est injecté en tête de la liste des sources retournées à interface.py,
+    ce qui permet à l'expander "Documents utilisés" d'afficher l'origine des données
+    Messier et à la chaîne RAG d'y accéder si nécessaire.
+
+    Args:
+        messier_page_content (str): Texte formaté retourné par fetch_messier_page_top10().
+
+    Returns:
+        Document: Document LangChain avec métadonnées source et type.
+    """
     from langchain_core.documents import Document
     return Document(
         page_content=messier_page_content,
@@ -527,7 +811,24 @@ def create_messier_page_document(messier_page_content: str):
     )
 
 def find_messier_info(messier_number: int, messier_docs: list) -> str:
-    """Find comprehensive info snippet for a given Messier number - search across all chunks."""
+    """
+    Recherche et retourne le chunk FAISS le plus pertinent pour un numéro Messier donné.
+
+    La fonction essaie de nombreux formats de notation (M31, M 31, M-031, Messier 31…)
+    et choisit le chunk où la correspondance apparaît le plus tôt dans le texte —
+    ce qui favorise les chunks contenant l'en-tête de l'objet plutôt qu'une simple mention.
+
+    Utilisée pour enrichir l'affichage des images Messier avec les informations
+    issues du PDF "Catalogue Messier.pdf".
+
+    Args:
+        messier_number (int): Numéro Messier (1–110).
+        messier_docs (list): Liste de Documents LangChain issus du catalogue.
+
+    Returns:
+        str: Extrait du meilleur chunk trouvé (max 1200 caractères),
+             ou chaîne vide si aucune correspondance n'est trouvée.
+    """
     if not messier_number or not messier_docs:
         return ""
 
@@ -567,7 +868,23 @@ def find_messier_info(messier_number: int, messier_docs: list) -> str:
     return best_match[:1200] if best_match else ""
 
 def extract_messier_numbers(text: str) -> list:
-    """Extract Messier numbers from text in order of appearance - handles multiple formats."""
+    """
+    Extrait tous les numéros Messier présents dans un texte, dans leur ordre d'apparition.
+
+    Gère de nombreux formats courants : M1, M 1, M-1, M01, M001, (M1), Messier 31, etc.
+    Les doublons sont éliminés (première occurrence conservée) et seuls les numéros
+    valides entre 1 et 110 sont retenus.
+
+    Cette fonction est utilisée pour identifier quelles images Messier afficher
+    en fonction des objets mentionnés dans la réponse du LLM.
+
+    Args:
+        text (str): Texte quelconque (réponse du chatbot, question, etc.).
+
+    Returns:
+        list[int]: Liste ordonnée de numéros Messier uniques (1–110),
+                   liste vide si text est vide ou contient aucune mention.
+    """
     if not text:
         return []
     
@@ -757,9 +1074,10 @@ def create_skywatch_document(skywatch_content: str):
         page_content=skywatch_content,
         metadata={
             'source': 'skywatch.astronomie-pointedudiable.fr',
-            'type': 'realtime_weather'  # Type de données: météo en temps réel
+            'type': 'realtime_weather'  # Identifiant de type pour le filtrage dans interface.py
         }
     )
+
 def create_contextualize_q_system_prompt():
     """
     Crée un prompt pour reformuler les questions en tenant compte de l'historique du chat.
@@ -1003,23 +1321,36 @@ def build_chains(vector, model, prompt, contextualize_q_prompt):
 
 def get_response(user_input: str, chat_history: list, vector, chain, reasoning_mode=False):
     """
-    Récupère la réponse du chatbot pour une question utilisateur.
-    
-    Cette fonction gère:
-    - La récupération des données SkyWatch si nécessaire
-    - La détection des questions sur les objets Messier
-    - L'invocation de la chaîne RAG
-    - Le retour des documents utilisés
-    
+    Point d'entrée principal du moteur RAG : produit la réponse du chatbot.
+
+    Orchestre les 6 étapes suivantes :
+    1. Vérifie que la base vectorielle est disponible (garde-fou).
+    2. Récupère les données SkyWatch en temps réel si la question porte sur la météo
+       ou le programme d'observation (should_fetch_skywatch).
+    3. Si la question concerne les objets Messier visibles ce soir
+       (should_fetch_messier_page), retourne directement la réponse formatée
+       sans passer par le LLM — les données proviennent du catalogue JS.
+    4. Construit un "enhanced_input" en ajoutant les indicateurs de mode
+       (raisonnement, catalogue Messier) à la question originale.
+    5. Invoque la chaîne RAG une première fois avec l'enhanced_input.
+    6. Si des données SkyWatch ont été récupérées, réinvoque la chaîne avec
+       un second input contenant les données météo explicitement injectées —
+       ce double appel garantit que le LLM utilise bien les données temps réel.
+
     Args:
-        user_input (str): La question de l'utilisateur
-        chat_history (list): Historique de la conversation
-        vector: Base de données vectorielle FAISS
-        chain: Chaîne RAG construite
-        reasoning_mode (bool): Activer le mode raisonnement détaillé
-        
+        user_input (str): La question telle que saisie par l'utilisateur.
+        chat_history (list): Historique de la conversation sous forme de
+                             [HumanMessage, AIMessage, …].
+        vector: Base de données vectorielle FAISS (None si aucun document chargé).
+        chain: Chaîne RAG construite par build_chains().
+        reasoning_mode (bool): Si True, le LLM explicite son processus de réflexion
+                               avant de donner sa réponse finale.
+
     Returns:
-        tuple: (réponse_texte, documents_utilisés, messier_images)
+        tuple:
+            - str  : Réponse textuelle du chatbot (markdown).
+            - list : Documents LangChain utilisés (sources affichées dans l'UI).
+            - list : Dicts d'images Messier à afficher côte-à-côte avec la réponse.
     """
     # Vérifie que la base vectorielle est chargée
     if vector is None:
@@ -1068,13 +1399,10 @@ def get_response(user_input: str, chat_history: list, vector, chain, reasoning_m
         enhanced_input = f"[MODE RAISONNEMENT ACTIVÉ]\n\n{user_input}"
         print("INFO - Mode raisonnement activé")
     
-    # Ajoute une instruction pour rechercher le catalogue Messier si nécessaire
+    # Ajoute une instruction pour orienter le retriever vers le catalogue Messier.
+    # NOTE : l'instruction est construite en une seule fois pour éviter de doubler
+    # l'injection dans l'input (anomalie présente dans une version précédente du code).
     if needs_messier:
-
-        enhanced_input = f"{enhanced_input}\n\n[IMPORTANT: Rechercher dans le document 'Catalogue Messier.pdf' pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
-        print("INFO - Input amélioré pour recherche dans catalogue Messier")
-
-        # Only inject actual Messier context without doubling it
         enhanced_input = (
             f"{enhanced_input}\n\n[IMPORTANT: Utilise le document 'Catalogue Messier.pdf' "
             "pour obtenir les informations sur les objets Messier (type, constellation, magnitude, taille)]"
