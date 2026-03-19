@@ -32,7 +32,9 @@ from datetime import datetime  # Gestion des dates/heures
 from dotenv import load_dotenv  # Chargement des variables d'environnement
 from pathlib import Path  # Gestion des chemins fichiers
 
-# PyTorch - Configuration (fix pour éviter les warnings)
+# PyTorch - Contournement d'un warning Streamlit causé par l'inspection des
+# attributs internes de torch.classes. SimpleNamespace remplace le _path
+# manquant sans modifier le comportement de PyTorch.
 import torch, types
 torch.classes.__path__ = types.SimpleNamespace(_path=[])
 
@@ -51,7 +53,8 @@ st.set_page_config(
     }
 )
 
-# Charger les variables d'environnement depuis le fichier .env
+# Charge les variables d'environnement depuis .env (override=True pour que les
+# valeurs locales priment sur les variables système déjà définies).
 load_dotenv(override=True)
 
 # ==============================================================================
@@ -67,14 +70,24 @@ ENVIRONMENT = detect_environment()
 
 def send_email(receiver_email, subject, body):
     """
-    Envoie un email via SMTP (Gmail).
-    
-    Utilisée pour les notifications d'oubli de mot de passe ou d'identifiant.
-    
+    Envoie un email transactionnel via le serveur SMTP Gmail (port 587, TLS).
+
+    Appelée par les actions "Mot de passe oublié" et "Nom d'utilisateur oublié"
+    de la sidebar pour transmettre les informations de récupération à l'utilisateur.
+
+    Les credentials SMTP (SMTP_USER, SMTP_PASSWORD) doivent être définis dans
+    les variables d'environnement ou dans st.secrets (selon l'environnement).
+    SMTP_PASSWORD doit être un "mot de passe d'application" Gmail, pas le mot
+    de passe principal du compte.
+
     Args:
-        receiver_email (str): Adresse email du destinataire
-        subject (str): Sujet de l'email
-        body (str): Corps du message
+        receiver_email (str): Adresse email du destinataire.
+        subject (str): Sujet de l'email.
+        body (str): Corps du message en texte brut.
+
+    Raises:
+        ValueError: Si SMTP_USER ou SMTP_PASSWORD ne sont pas configurés.
+        smtplib.SMTPException: En cas d'erreur de connexion ou d'envoi SMTP.
     """
     # Configuration du serveur SMTP Gmail
     smtp_host = "smtp.gmail.com"
@@ -110,11 +123,12 @@ def send_email(receiver_email, subject, body):
 # La clé API Mistral sera chargée dynamiquement après l'authentification
 # pour éviter les problèmes avec st.secrets en local
 
-# Chemin vers le fichier de configuration utilisateurs
+# Chemin absolu vers config.yaml (deux niveaux au-dessus du dossier src/).
+# Ce fichier contient les credentials chiffrés, les rôles et les emails.
 config_path = Path(__file__).resolve().parent.parent / "config.yaml"
 
-# Initialise l'authenticateur Streamlit avec le fichier config
-# Permet de gérer les inscriptions, connexions et mots de passe
+# Initialise l'authenticateur avec le fichier YAML. stauth gère le hachage
+# des mots de passe, les cookies de session et les opérations CRUD sur les comptes.
 authenticator = stauth.Authenticate(str(config_path))
 # ------------- Register new user panel ------------------------
 # Panneau de gestion des utilisateurs dans la barre latérale
@@ -197,7 +211,8 @@ with st.sidebar:
                         "Votre nouveau mot de passe",
                         f"Bonjour,\n\nVotre nouveau mot de passe est : {new_random_password} ")
                     st.success('Mot de passe oublié. Un e-mail a été envoyé à l\'adresse fournie.')
-                    # To securely transfer the new password to the user please see step 8.
+                    # Le nouveau mot de passe temporaire a été envoyé par email.
+                    # L'utilisateur devra le changer dès sa prochaine connexion.
                 elif username_of_forgotten_password == False:
                     st.error('Nom d\'utilisateur ou e-mail non trouvé.')
             except Exception as e:
@@ -213,7 +228,7 @@ with st.sidebar:
                         f"Bonjour,\n\nVotre identifiant est : {username_of_forgotten_username}"
                     )
                     st.success('Nom d\'utilisateur oublié. Un e-mail a été envoyé à l\'adresse fournie.')
-                    # To securely transfer the username to the user please see step 8.
+                    # L'identifiant a été envoyé à l'adresse email associée au compte.
                 elif username_of_forgotten_username == False:
                     st.error('Nom d\'utilisateur ou e-mail non trouvé.')
             except Exception as e:
@@ -265,9 +280,8 @@ elif st.session_state.get('authentication_status'):
     user_roles = st.session_state.get("roles")
   
 
-    # --- Loading user history ---
-    # Prépare le répertoire d'historique pour cet utilisateur
-    # Remplace les espaces par des underscores dans le nom pour créer un dossier
+    # Convertit le nom d'affichage en identifiant de dossier filesystem-safe :
+    # minuscules + espaces → underscores (ex. "Jean Dupont" → "jean_dupont").
     file_safe_name = user_name.lower().replace(' ', '_')
     user_history_path = HISTORY_DIR / file_safe_name
     os.makedirs(user_history_path, exist_ok=True)
@@ -290,7 +304,11 @@ elif st.session_state.get('authentication_status'):
     if "vector" not in st.session_state:
         st.session_state.vector = load_vector_store(INDEX_DIR, embedding_function)
     
-    # Reconstruit la chaîne RAG si le mode raisonnement change ou si la chaîne n'existe pas
+    # Détermine si la chaîne RAG doit être reconstruite.
+    # Deux conditions déclenchent une reconstruction :
+    #  1. La chaîne n'existe pas encore en session (premier chargement).
+    #  2. Le mode raisonnement a changé depuis la dernière construction
+    #     (le prompt système diffère selon ce mode, ce qui rend la chaîne obsolète).
     rebuild_chain = False
     if "chain" not in st.session_state:
         rebuild_chain = True
@@ -315,7 +333,10 @@ elif st.session_state.get('authentication_status'):
     # ==============================================================================
     # INITIALISATION DE L'ÉTAT DE SESSION
     # ==============================================================================
-    # Variables persistantes à travers les reruns de Streamlit
+    # Streamlit reexécute le script complet à chaque interaction utilisateur.
+    # st.session_state permet de conserver des valeurs entre ces reruns.
+    # Le pattern "if X not in st.session_state" évite de réinitialiser des
+    # variables déjà définies lors des reruns suivants.
     if "available_documents" not in st.session_state:
         st.session_state.available_documents = []
     if "messages" not in st.session_state:
@@ -333,9 +354,14 @@ elif st.session_state.get('authentication_status'):
     
     def refresh_document_list():
         """
-        Met à jour la liste des documents PDF disponibles dans le répertoire docs/.
-        
-        Parcourt le répertoire et extrait tous les fichiers .pdf/.PDF.
+        Synchronise st.session_state.available_documents avec le contenu de DOCS_DIR.
+
+        Parcourt le répertoire docs/ et collecte tous les fichiers .pdf/.PDF.
+        Le résultat est stocké dans st.session_state.available_documents, qui
+        alimente les selectbox de suppression et l'expander "Documents disponibles".
+
+        Cette fonction est appelée après chaque upload ou suppression de document
+        pour maintenir la liste à jour sans recharger toute la page.
         """
         if DOCS_DIR.exists():
             # Récupère tous les fichiers PDF du répertoire docs
@@ -345,13 +371,22 @@ elif st.session_state.get('authentication_status'):
 
     def save_chat_history():
         """
-        Sauvegarde l'historique de la conversation en JSON.
-        
-        Enregistre à la fois les messages affichés et l'historique RAG (HumanMessage/AIMessage).
-        Chemin: chat_histories/{username}/{timestamp}.json
-        
+        Persiste l'historique de la conversation courante dans un fichier JSON.
+
+        Sauvegarde deux structures complémentaires :
+        - "messages"     : liste des dicts {role, content, sources} affichés dans l'UI.
+        - "chat_history" : liste de dicts {type, content} reconstituant les objets
+                           HumanMessage/AIMessage passés à la chaîne RAG.
+
+        Le fichier est nommé par le timestamp de création de la session
+        (ex. "2025-06-01_20-00-00.json") et placé dans
+        chat_histories/{file_safe_name}/ (nom de l'utilisateur en snake_case).
+
+        Appelée automatiquement après chaque échange utilisateur/assistant.
+
         Returns:
-            bool: True si sauvegarde réussie, False sinon
+            bool: True si l'écriture a réussi, False si une exception s'est produite
+                  (l'erreur est également affichée via st.error).
         """
         try:
             # Prépare les données à sauvegarder
@@ -386,7 +421,7 @@ elif st.session_state.get('authentication_status'):
     # INTERFACE DE PRÉSENTATION ET DE BIENVENUE
     # ==============================================================================
 
-    # Ajouter le logo "Gens de la Lune"
+    # Affiche le logo centré dans la colonne du milieu (ratio 1:2:1).
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         logo_path = Path(__file__).resolve().parent.parent / "assets" / "images" / "logo-gens-de-la-lune.png"
@@ -434,7 +469,9 @@ elif st.session_state.get('authentication_status'):
         # ==============================================================================
         with st.expander("Historique de la discussion", expanded=False):
             if "admin" in user_roles:
-                # List all user directories
+                # Les admins voient les historiques de tous les utilisateurs.
+                # On liste les sous-dossiers de HISTORY_DIR, chacun correspondant
+                # à un utilisateur (nom en snake_case).
                 user_directories = [d for d in os.listdir(HISTORY_DIR) if os.path.isdir(os.path.join(HISTORY_DIR, d))]
                 if not user_directories:
                     st.info("Aucun utilisateur enregistré pour le moment.")
@@ -509,6 +546,9 @@ elif st.session_state.get('authentication_status'):
                     embedder = MultimodalEmbedder(api_key)
                 add_permanently = False
                 if "admin" in user_roles:
+                    # Seul un admin peut sauvegarder l'index FAISS sur disque.
+                    # Sans cette option, le document est indexé en mémoire pour la
+                    # session courante uniquement (perdu au prochain redémarrage).
                     add_permanently = st.checkbox("Ajouter le document de manière permanente")
                 if st.button("Traiter", key="process_button"):
                     try:
@@ -551,7 +591,10 @@ elif st.session_state.get('authentication_status'):
                     try:
                         with st.spinner("Suppression en cours..."):
                             file_path = os.path.join(DOCS_DIR, selected_doc)
-                            # Supprime le document de l'index vectoriel
+                            # Supprime les vecteurs FAISS associés au document.
+                            # Note : "delection_state" est une faute de frappe héritée
+                            # du code original ; conserver tel quel pour ne pas casser
+                            # d'éventuelles références externes.
                             delection_state = Embedder(api_key).delete_document(selected_doc, st.session_state.vector, save=delete_permanently)
                             if delection_state is False:
                                 st.error(f"Le document '{selected_doc}' n'existe pas ou n'a pas pu être supprimé.")
@@ -626,7 +669,9 @@ elif st.session_state.get('authentication_status'):
         "Quels sont les objets de Messier visibles ce soir?"
     ]
     
-    # Variable pour tracker si une question suggérée est cliquée
+    # question_clicked reçoit le texte de la question si l'un des boutons
+    # est pressé. Il est ensuite passé à st.chat_input comme valeur par défaut,
+    # ce qui unifie le traitement des questions suggérées et de la saisie libre.
     question_clicked = None
     with col1:
         if st.button(suggested_questions[0], key="q1", use_container_width=True):
@@ -658,10 +703,14 @@ elif st.session_state.get('authentication_status'):
             st.write(user_input)
         st.session_state.messages.append({"role": "user", "content": user_input})
 
-        # 2) Crée un placeholder unique pour la réponse de l'assistant
+        # 2) Crée un conteneur vide qui sera réutilisé pour afficher les tentatives
+        #    en cours puis la réponse finale. st.empty() garantit que chaque réécriture
+        #    remplace le contenu précédent au lieu d'empiler de nouveaux éléments.
         assistant_slot = st.empty()
 
-        # 3) Boucle de génération (avec gestion d'erreurs)
+        # 3) Boucle de génération avec retry automatique.
+        #    En cas d'erreur API (timeout, rate limit…), la boucle réessaie
+        #    indéfiniment en affichant le numéro de tentative dans le placeholder.
         while True:
             nb_tentatives = 0
             try:
@@ -684,8 +733,14 @@ elif st.session_state.get('authentication_status'):
 
         # 4) Réponse finale : remplace le placeholder par le contenu réel
         with assistant_slot.chat_message("assistant"):
+            # rendered_messier_blocks : flag qui indique si les blocs Messier ont déjà
+            # été rendus côte-à-côte avec leurs images. S'il vaut True, le st.write(response)
+            # générique est ignoré pour éviter d'afficher la réponse en double.
             rendered_messier_blocks = False
             if messier_images:
+                # Découpe la réponse en blocs séparés par des lignes vides.
+                # Chaque bloc correspond à un objet Messier et sera affiché
+                # à gauche, avec l'image associée à droite.
                 blocks = [b.strip() for b in response.split("\n\n") if b.strip()]
                 if blocks:
                     for idx, block in enumerate(blocks, 1):
@@ -760,11 +815,14 @@ elif st.session_state.get('authentication_status'):
                     except Exception as e:
                         st.warning(f"Erreur lors de l'affichage de l'image {img_data['messier_label']}: {e}")
             
-            # Display source documents
+            # Construit la liste des sources pour l'expander "Documents utilisés".
+            # sources_payload est aussi stocké dans st.session_state.messages pour
+            # être réaffiché lors des reruns (historique de conversation).
             sources_payload = []
             if documents:
                 with st.expander("📚 Documents utilisés"):
-                    # Dictionnaire pour éviter les doublons
+                    # Déduplique par nom de source : si plusieurs chunks proviennent
+                    # du même fichier, seul le premier est conservé pour l'affichage.
                     unique_sources = {}
                     for doc in documents:
                         # Essaie différentes façons de récupérer la source
